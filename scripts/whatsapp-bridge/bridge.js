@@ -555,13 +555,17 @@ async function startSocket() {
         messageKeys: Object.keys(msg.message || {}),
       });
 
-      // Handle fromMe messages based on mode
+      // Handle fromMe messages based on mode.
+      // In bot mode, an owner may intentionally address the agent from the
+      // already allowlisted group using the paired WhatsApp account. Route it
+      // through the same echo/allowlist gate as owner DMs. Status updates stay
+      // unconditionally ignored.
       let fromOwner = false;
       if (msg.key.fromMe) {
-        if (isGroup || chatId.includes('status')) {
+        if (chatId.includes('status')) {
           emitDebugEvent({
             stage: 'ignored',
-            reason: isGroup ? 'from_me_group' : 'from_me_status',
+            reason: 'from_me_status',
             chatId: redactWhatsAppId(chatId),
           });
           continue;

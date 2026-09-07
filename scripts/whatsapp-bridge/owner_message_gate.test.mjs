@@ -80,6 +80,19 @@ test('fromMe is forwarded as owner when chatId is allowlisted', () => {
   assert.deepEqual(decision, { action: 'forward_owner' });
 });
 
+test('fromMe group message is forwarded only when that group is allowlisted', () => {
+  const groupId = '120363427613648109@g.us';
+  const decision = classifyOwnerMessageGate({
+    fromMe: true,
+    fromOwnerEnabled: true,
+    recentlySent: makeRecentlySent(),
+    allowlistMatches: makeAllowlist([groupId]),
+    messageId: 'M-OWN-GROUP-1',
+    chatId: groupId,
+  });
+  assert.deepEqual(decision, { action: 'forward_owner' });
+});
+
 test('open-allowlist (matchesAllowedUser short-circuits true) forwards as owner', () => {
   // matchesAllowedUser returns true on empty allowlist or "*"; the gate
   // must respect that so deployments without an allowlist are unaffected
