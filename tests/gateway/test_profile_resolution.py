@@ -2,12 +2,13 @@
 
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from gateway.session import SessionSource, build_session_key
-from gateway.run import GatewayRunner
+from gateway.run import GatewayRunner, ProfileRouteResolutionError
 from gateway.profile_routing import ProfileRoute, ProfileRouteRejected
 from gateway.config import GatewayConfig, Platform
 from gateway.platforms.base import BasePlatformAdapter
@@ -18,7 +19,11 @@ from gateway.platforms.event import MessageEvent
 def mock_runner():
     """Create a minimal mock GatewayRunner with the methods we need."""
     runner = MagicMock(spec=GatewayRunner)
-    runner.config = MagicMock(profile_routes=[])
+    runner.config = SimpleNamespace(
+        profile_routes=[],
+        multiplex_profiles=True,
+        multiplex_profile_allowlist=None,
+    )
     # Bind the actual methods to the mock
     runner._profile_name_for_source = GatewayRunner._profile_name_for_source.__get__(runner)
     runner._resolve_profile_home_for_source = GatewayRunner._resolve_profile_home_for_source.__get__(runner)
@@ -75,58 +80,41 @@ class TestResolutionOrder:
     
 
 
-class TestMissingProfileWarning:
-    """Tests for warning when a profile doesn't exist on disk."""
-    
-    def test_nonexistent_profile_warning(self, mock_runner, discord_source, caplog):
-        """When source.profile points to a nonexistent profile, log a WARNING."""
+class TestMissingProfileDenied:
+    """Explicit route targets must never fall back to the default home."""
+
+    def test_nonexistent_profile_is_denied(self, mock_runner, discord_source):
         discord_source.profile = "nonexistent"
-        
-        with patch("hermes_cli.profiles.get_active_profile_name", return_value="active"):
-            with patch("hermes_cli.profiles.get_profile_dir") as mock_get_dir:
-                mock_get_dir.return_value = Path("/hermes/profiles/nonexistent")
-                with patch("hermes_cli.profiles.profile_exists", return_value=False):
-                    with patch("hermes_constants.get_hermes_home", return_value=Path("/hermes")):
-                        with caplog.at_level(logging.WARNING):
-                            result = mock_runner._resolve_profile_home_for_source(discord_source)
-                            
-                            # Should fall back to global HERMES_HOME
-                            assert result == Path("/hermes")
-                            
-                            # Should have logged a warning
-                            assert len(caplog.records) == 1
-                            assert caplog.records[0].levelname == "WARNING"
-                            assert "nonexistent" in caplog.records[0].message
-                            assert "does not exist" in caplog.records[0].message
-                            assert "discord" in caplog.records[0].message
-                            assert "123456" in caplog.records[0].message
-    
-    
-    
+        mock_runner.config.multiplex_profile_allowlist = None
+
+        with patch("hermes_cli.profiles.profile_exists", return_value=False):
+            with pytest.raises(ProfileRouteResolutionError, match="does not exist"):
+                mock_runner._resolve_profile_home_for_source(discord_source)
 
 
 class TestExceptionHandling:
-    """Tests for exception handling in profile resolution."""
-    
-    def test_get_profile_dir_exception_logs_warning(self, mock_runner, discord_source, caplog):
-        """When get_profile_dir raises an exception, log a WARNING with context."""
+    """Tests for fail-closed exceptions in profile resolution."""
+
+    def test_get_profile_dir_exception_is_denied(self, mock_runner, discord_source):
         discord_source.profile = "bad-profile"
-        
-        with patch("hermes_cli.profiles.get_active_profile_name", return_value="active"):
-            with patch("hermes_cli.profiles.get_profile_dir", side_effect=ValueError("Invalid profile name")):
-                with patch("hermes_constants.get_hermes_home", return_value=Path("/hermes")):
-                    with caplog.at_level(logging.WARNING):
-                        result = mock_runner._resolve_profile_home_for_source(discord_source)
-                        
-                        # Should fall back to global HERMES_HOME
-                        assert result == Path("/hermes")
-                        
-                        # Should have logged a warning with exception info
-                        assert len(caplog.records) == 1
-                        assert caplog.records[0].levelname == "WARNING"
-                        assert "bad-profile" in caplog.records[0].message
-                        assert "Failed to resolve profile directory" in caplog.records[0].message
-    
+        mock_runner.config.multiplex_profile_allowlist = None
+
+        with patch("hermes_cli.profiles.profile_exists", return_value=True):
+            with patch(
+                "hermes_cli.profiles.get_profile_dir",
+                side_effect=ValueError("Invalid profile name"),
+            ):
+                with pytest.raises(ProfileRouteResolutionError, match="failed to resolve"):
+                    mock_runner._resolve_profile_home_for_source(discord_source)
+
+    def test_profile_outside_multiplex_allowlist_is_denied(
+        self, mock_runner, discord_source
+    ):
+        discord_source.profile = "admin"
+        mock_runner.config.multiplex_profile_allowlist = ["guest"]
+
+        with pytest.raises(ProfileRouteResolutionError, match="outside the multiplex allowlist"):
+            mock_runner._resolve_profile_home_for_source(discord_source)
 
 
 class TestRoutingConsultation:
@@ -236,6 +224,24 @@ class TestNonDiscordProfileRouting:
         adapter = _stub_adapter(Platform.TELEGRAM, mock_runner)
         source = adapter.build_source(chat_id="route-chat", chat_type="group")
         assert source.profile is None
+
+    def test_telegram_sender_route_resolves(self, mock_runner, telegram_source):
+        """A Telegram DM can be routed by its trusted platform sender ID."""
+        mock_runner.config.multiplex_profiles = True
+        mock_runner.config.profile_routes = [
+            ProfileRoute(
+                name="telegram-user",
+                platform="telegram",
+                profile="guest",
+                user_id="123456789",
+                chat_type="dm",
+            ),
+        ]
+        telegram_source.user_id = "123456789"
+        telegram_source.chat_type = "dm"
+        telegram_source.profile = None
+
+        assert mock_runner._profile_name_for_source(telegram_source) == "guest"
 
 
 class TestGatewayRunnerInjection:

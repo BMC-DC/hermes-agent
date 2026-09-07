@@ -1,9 +1,53 @@
-"""Profile-based routing: route guilds/channels/threads to different profiles.
+"""Profile-based routing: route guilds/channels/threads/senders to different profiles.
 
-Matching priority, most specific first (``gateway.profile_routes`` in config.yaml):
-platform + chat_id + thread_id (14) → platform + chat_id (6) → platform + guild_id (2)
-→ default profile. For Discord threads/forum posts ``parent_chat_id`` carries the
-direct parent, so a channel route also matches any thread/post under it.
+Allows a single Hermes instance to route specific Discord guilds/channels/threads
+(or an exact sender) to different profiles — each with their own model, tools,
+memory, and persona.
+
+Matching priority (most specific first):
+  1. platform + user_id (exact sender)               — specificity 16
+  2. platform + chat_id + thread_id (exact thread)  — specificity 14
+  3. platform + chat_id (channel route)             — specificity 6
+  4. platform + guild_id (guild/server route)       — specificity 2
+  5. No match                                       → default profile
+
+Parent-chain matching:
+For Discord threads and forum posts, ``parent_chat_id`` carries the
+direct parent (the channel for a thread, the forum channel for a post).
+Routes keyed on a channel match both direct messages and messages in
+any thread/post whose parent is that channel.
+
+WhatsApp identity matching:
+A ``chat_id`` route also matches across WhatsApp's phone-number/JID/LID
+identity variants for direct (non-group, non-broadcast) chats, via
+``_whatsapp_user_chat_ids_match`` — the same alias resolution session
+keys and adapter allowlists already use.
+
+Configuration (config.yaml):
+
+    gateway:
+      profile_routes:
+        - name: server-default
+          platform: discord
+          guild_id: "YOUR_GUILD_ID"
+          profile: server-profile
+
+        - name: special-channel
+          platform: discord
+          guild_id: "YOUR_GUILD_ID"
+          chat_id: "YOUR_CHANNEL_ID"
+          profile: channel-profile
+
+        - name: thread-route
+          platform: discord
+          chat_id: "YOUR_CHANNEL_ID"
+          thread_id: "YOUR_THREAD_ID"
+          profile: thread-profile
+
+        - name: telegram-user
+          platform: telegram
+          user_id: "YOUR_TELEGRAM_USER_ID"
+          profile: private-profile
 """
 
 from __future__ import annotations
@@ -57,16 +101,30 @@ class ProfileRoute:
     guild_id: Optional[str] = None
     chat_id: Optional[str] = None
     thread_id: Optional[str] = None
+    chat_type: Optional[str] = None
+    user_id: Optional[str] = None
     enabled: bool = True
 
     @property
     def specificity(self) -> int:
         """Higher value = more specific match."""
-        return 2 * bool(self.guild_id) + 4 * bool(self.chat_id) + 8 * bool(self.thread_id)
+        return (
+            2 * bool(self.guild_id)
+            + 4 * bool(self.chat_id)
+            + 8 * bool(self.thread_id)
+            + 1 * bool(self.chat_type)
+            + 16 * bool(self.user_id)
+        )
 
     def matches(
-        self, platform: str, guild_id: Optional[str] = None, chat_id: Optional[str] = None,
-        thread_id: Optional[str] = None, parent_chat_id: Optional[str] = None,
+        self,
+        platform: str,
+        guild_id: Optional[str] = None,
+        chat_id: Optional[str] = None,
+        thread_id: Optional[str] = None,
+        parent_chat_id: Optional[str] = None,
+        chat_type: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> bool:
         """True if every discriminator the route declares holds (AND).
 
@@ -76,6 +134,10 @@ class ProfileRoute:
         if not self.enabled or self.platform != platform:
             return False
         if self.thread_id and self.thread_id != thread_id:
+            return False
+        if self.chat_type and self.chat_type != chat_type:
+            return False
+        if self.user_id and self.user_id != user_id:
             return False
         if (
             self.chat_id
@@ -99,7 +161,7 @@ def _coerce_route_id(value: Any) -> Optional[str]:
     so they are passed through with a load-time warning instead of being silently "fixed" (#86470).
     """
     if value is None or isinstance(value, str):
-        return value
+        return value if (not isinstance(value, str) or value.strip()) else None
     if isinstance(value, int) and not isinstance(value, bool):
         return str(value)
     logger.warning(
@@ -138,19 +200,38 @@ def parse_profile_routes(raw: Optional[List[Dict[str, Any]]]) -> List[ProfileRou
             guild_id=_coerce_route_id(entry.get("guild_id")),
             chat_id=_coerce_route_id(entry.get("chat_id")),
             thread_id=_coerce_route_id(entry.get("thread_id")),
+            # Sender IDs are transport-provided opaque identifiers, same coercion
+            # rules as the other discriminators above.
+            user_id=_coerce_route_id(entry.get("user_id")),
+            chat_type=entry.get("chat_type"),
             enabled=entry.get("enabled", True),
         ))
+    # Sort: most specific first so the first match wins.
     routes.sort(key=lambda r: r.specificity, reverse=True)
     logger.debug("Loaded %d profile routes (most-specific-first)", len(routes))
     return routes
 
 
 def match_profile_route(
-    routes: List[ProfileRoute], platform: str, guild_id: Optional[str] = None, chat_id: Optional[str] = None,
-    thread_id: Optional[str] = None, parent_chat_id: Optional[str] = None,
+    routes: List[ProfileRoute],
+    platform: str,
+    guild_id: Optional[str] = None,
+    chat_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    parent_chat_id: Optional[str] = None,
+    chat_type: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> Optional[ProfileRoute]:
     """Return the first (most specific) matching route, or None."""
     for route in routes:
-        if route.matches(platform, guild_id=guild_id, chat_id=chat_id, thread_id=thread_id, parent_chat_id=parent_chat_id):
+        if route.matches(
+            platform,
+            guild_id=guild_id,
+            chat_id=chat_id,
+            thread_id=thread_id,
+            parent_chat_id=parent_chat_id,
+            chat_type=chat_type,
+            user_id=user_id,
+        ):
             return route
     return None

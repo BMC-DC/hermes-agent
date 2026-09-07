@@ -4076,18 +4076,40 @@ class BasePlatformAdapter(ABC):
         return self._pending_messages.pop(session_key, None)
 
     def build_source(
-        self, chat_id: str, chat_name: Optional[str] = None, chat_type: str = "dm",
-        user_id: Optional[str] = None, user_name: Optional[str] = None,
-        thread_id: Optional[str] = None, chat_topic: Optional[str] = None,
-        user_id_alt: Optional[str] = None, chat_id_alt: Optional[str] = None, is_bot: bool = False,
-        scope_id: Optional[str] = None, guild_id: Optional[str] = None,
-        parent_chat_id: Optional[str] = None, message_id: Optional[str] = None,
-        role_authorized: bool = False, auto_thread_created: bool = False,
-        auto_thread_initial_name: Optional[str] = None) -> SessionSource:
+        self,
+        chat_id: str,
+        chat_name: Optional[str] = None,
+        chat_type: str = "dm",
+        user_id: Optional[str] = None,
+        user_name: Optional[str] = None,
+        thread_id: Optional[str] = None,
+        chat_topic: Optional[str] = None,
+        user_id_alt: Optional[str] = None,
+        chat_id_alt: Optional[str] = None,
+        is_bot: bool = False,
+        scope_id: Optional[str] = None,
+        guild_id: Optional[str] = None,
+        parent_chat_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        role_authorized: bool = False,
+        auto_thread_created: bool = False,
+        auto_thread_initial_name: Optional[str] = None,
+    ) -> SessionSource:
         """Build a SessionSource; with ``gateway.profile_routes`` configured the matching
-        profile is stamped on ``source.profile`` for per-profile HERMES_HOME isolation."""
+        profile is stamped on ``source.profile`` for per-profile HERMES_HOME isolation.
+
+        When ``gateway.profile_routes`` is configured, the routing engine resolves the
+        matching profile from guild/chat/thread/user and stamps it on ``source.profile``.
+        Downstream code (``_resolve_profile_home_for_source`` in run.py) reads that field
+        to enter ``_profile_runtime_scope`` for per-profile HERMES_HOME isolation.
+        """
         def _opt(value) -> Optional[str]:
             return str(value) if value else None
+
+        # Normalize empty topic to None
+        if chat_topic is not None and not chat_topic.strip():
+            chat_topic = None
+
         fields = dict(
             platform=self.platform, chat_id=str(chat_id), chat_name=chat_name, chat_type=chat_type,
             user_id=_opt(user_id), user_name=user_name, thread_id=_opt(thread_id),
@@ -4095,7 +4117,15 @@ class BasePlatformAdapter(ABC):
             chat_id_alt=chat_id_alt, is_bot=is_bot, scope_id=_opt(scope_id),
             guild_id=_opt(guild_id), parent_chat_id=_opt(parent_chat_id),
             message_id=_opt(message_id))
-        profile, profile_route_rejected = None, False  # profile from configured routes, if any
+
+        # profile from configured routes, if any. Two distinct failure modes are tracked
+        # separately and neither one defaults to the active/default profile silently:
+        #   - profile_route_rejected: an explicit route matched a profile this gateway
+        #     does not serve (ProfileRouteRejected) -- a rejection, not a fault.
+        #   - route_resolution_failed: the route engine itself raised unexpectedly -- a
+        #     fault. Carried to the gateway handler, which denies before hooks/auth/
+        #     session/model work instead of treating a route-engine fault as default access.
+        profile, profile_route_rejected, route_resolution_failed = None, False, False
         if self.gateway_runner is not None:
             from gateway.profile_routing import ProfileRouteRejected
             try:
@@ -4103,13 +4133,18 @@ class BasePlatformAdapter(ABC):
             except ProfileRouteRejected:
                 profile_route_rejected = True
             except Exception:
-                logger.warning("Profile resolution failed for %s/%s, defaulting to active profile",
-                               self.platform, chat_id, exc_info=True)
+                route_resolution_failed = True
+                logger.warning(
+                    "Profile resolution failed for %s/%s; denying this event",
+                    self.platform, chat_id, exc_info=True,
+                )
+
         source = SessionSource(**fields, profile=profile, role_authorized=role_authorized,
                                auto_thread_created=auto_thread_created,
                                auto_thread_initial_name=auto_thread_initial_name)
         # Transport-only, kept out of to_dict(): the receiving adapter is authoritative this turn
-        # even if profile_routes picks another runtime; the reject flag is consumed before auth.
+        # even if profile_routes picks another runtime; the reject/fault flags are consumed before auth.
+        source._profile_route_resolution_failed = route_resolution_failed
         source._transport_adapter_ref = weakref.ref(self)
         source.profile_route_rejected = profile_route_rejected
         return source

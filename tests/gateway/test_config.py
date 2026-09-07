@@ -340,6 +340,79 @@ class TestLoadGatewayConfig:
         assert config.multiplex_profiles is True
         assert config.multiplex_profile_allowlist == ["worker", "guest"]
 
+    def test_multiplex_profile_allowlist_from_nested_gateway_section(self, tmp_path, monkeypatch):
+        """The nested list is type-preserved and excludes invalid profile IDs."""
+        hermes_home = tmp_path / ".hermes"
+        hermes_home.mkdir()
+        (hermes_home / "config.yaml").write_text(
+            "gateway:\n"
+            "  multiplex_profiles: true\n"
+            "  multiplex_profile_allowlist:\n"
+            "    - guest\n"
+            "    - ../invalid\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+        config = load_gateway_config()
+
+        assert config.multiplex_profiles is True
+        assert config.multiplex_profile_allowlist == ["guest"]
+
+    def test_multiplex_rejects_route_target_outside_allowlist(self, tmp_path, monkeypatch):
+        """Adapter startup allowlists must also bound profile route targets."""
+        hermes_home = tmp_path / ".hermes"
+        hermes_home.mkdir()
+        (hermes_home / "profiles" / "guest").mkdir(parents=True)
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+        with pytest.raises(ValueError, match="outside gateway.multiplex_profile_allowlist"):
+            GatewayConfig.from_dict(
+                {
+                    "multiplex_profiles": True,
+                    "multiplex_profile_allowlist": ["guest"],
+                    "profile_routes": [
+                        {"name": "bad-target", "platform": "telegram", "profile": "admin"},
+                    ],
+                }
+            )
+
+    def test_multiplex_rejects_route_target_missing_on_disk(self, tmp_path, monkeypatch):
+        """A configured target must exist before the gateway accepts traffic."""
+        hermes_home = tmp_path / ".hermes"
+        hermes_home.mkdir()
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+        with pytest.raises(ValueError, match=r"target profile\(s\) that do not exist"):
+            GatewayConfig.from_dict(
+                {
+                    "multiplex_profiles": True,
+                    "multiplex_profile_allowlist": ["guest"],
+                    "profile_routes": [
+                        {"name": "missing-target", "platform": "telegram", "profile": "guest"},
+                    ],
+                }
+            )
+
+    def test_multiplex_accepts_existing_allowlisted_route_target(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / ".hermes"
+        hermes_home.mkdir()
+        (hermes_home / "profiles" / "guest").mkdir(parents=True)
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+        config = GatewayConfig.from_dict(
+            {
+                "multiplex_profiles": True,
+                "multiplex_profile_allowlist": ["guest"],
+                "profile_routes": [
+                    {"name": "guest-target", "platform": "telegram", "profile": "guest"},
+                    {"name": "default-target", "platform": "telegram", "profile": "default"},
+                ],
+            }
+        )
+
+        assert [route.profile for route in config.profile_routes] == ["guest", "default"]
+
     def test_discord_websocket_health_settings_seed_platform_extra(self, tmp_path, monkeypatch):
         hermes_home = tmp_path / ".hermes"
         hermes_home.mkdir()

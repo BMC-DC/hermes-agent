@@ -73,6 +73,45 @@ def _normalize_multiplex_profile_allowlist(value: Any) -> Optional[List[str]]:
     return normalized
 
 
+def _normalize_multiplex_route_only_profiles(
+    value: Any, allowlist: Optional[List[str]]
+) -> List[str]:
+    """Normalize the route-only profile list: entries must be valid profile names,
+    never ``default``, and (when an allowlist is set) a subset of it -- a route-only
+    profile the allowlist doesn't cover could never actually be reached anyway."""
+    if not isinstance(value, list):
+        if value is not None:
+            logger.warning(
+                "Ignoring malformed gateway.multiplex_route_only_profiles (expected a list, got %s)",
+                type(value).__name__,
+            )
+        return []
+
+    from hermes_cli.profiles import normalize_profile_name, validate_profile_name
+
+    normalized: List[str] = []
+    for entry in value:
+        if not isinstance(entry, str):
+            logger.warning(
+                "Skipping invalid gateway.multiplex_route_only_profiles entry %r (expected a profile name)",
+                entry,
+            )
+            continue
+        try:
+            name = normalize_profile_name(entry)
+            validate_profile_name(name)
+        except ValueError:
+            logger.warning("Skipping invalid gateway.multiplex_route_only_profiles entry %r", entry)
+            continue
+        if (
+            name != "default"
+            and name not in normalized
+            and (allowlist is None or name in allowlist)
+        ):
+            normalized.append(name)
+    return normalized
+
+
 def _env_multiplex_profiles_override() -> "bool | None":
     """GATEWAY_MULTIPLEX_PROFILES operator override: True/False for a recognized token.
 
@@ -560,6 +599,11 @@ class GatewayConfig:
     # session keys, per-profile adapters/credentials). Allowlist None = serve all; [] = default only.
     multiplex_profiles: bool = False
     multiplex_profile_allowlist: Optional[List[str]] = None
+    # Profiles that may be selected by an inbound route but must never own an
+    # adapter or scheduled-job runner. This is for shared-credential routing:
+    # the default profile owns transport ingress; the target profile owns only
+    # its isolated agent runtime.
+    multiplex_route_only_profiles: List[str] = field(default_factory=list)
     # Public HTTPS endpoint for scoped RoomLink calls (an API key alone must never advertise a
     # route); HERMES_ROOM_LINK_URL overrides.
     room_link_url: Optional[str] = None
@@ -589,6 +633,7 @@ class GatewayConfig:
         "write_sessions_json", "always_log_local", "filter_silence_narration", "stt_enabled",
         "stt_echo_transcripts", "group_sessions_per_user", "thread_sessions_per_user",
         "max_concurrent_sessions", "multiplex_profiles", "multiplex_profile_allowlist",
+        "multiplex_route_only_profiles",
         "room_link_url", "systemd_watchdog_seconds", "loop_watchdog",
         "loop_watchdog_probe_interval_s", "loop_watchdog_probe_timeout_s",
         "loop_watchdog_max_strikes", "unauthorized_dm_behavior",
@@ -596,7 +641,48 @@ class GatewayConfig:
 
     def __post_init__(self) -> None:
         self.multiplex_profile_allowlist = _normalize_multiplex_profile_allowlist(self.multiplex_profile_allowlist)
+        self.multiplex_route_only_profiles = _normalize_multiplex_route_only_profiles(
+            self.multiplex_route_only_profiles, self.multiplex_profile_allowlist
+        )
         self.systemd_watchdog_seconds = coerce_systemd_watchdog_seconds(self.systemd_watchdog_seconds)
+        # ``multiplex_profile_allowlist`` controls every profile reachable through this
+        # gateway -- not merely profiles allowed to start their own adapters. Without
+        # this check, a stale route could silently activate another installed
+        # profile's secrets, state, and tools. Fail closed: refuse to start rather
+        # than accept traffic and fall back to the privileged default profile.
+        if self.multiplex_profiles and self.multiplex_profile_allowlist is not None:
+            allowed_route_profiles = {"default", *self.multiplex_profile_allowlist}
+            disallowed_routes = [
+                route for route in self.profile_routes
+                if route.profile not in allowed_route_profiles
+            ]
+            if disallowed_routes:
+                details = ", ".join(
+                    f"{route.name or '<unnamed>'!r} -> {route.profile!r}"
+                    for route in disallowed_routes
+                )
+                raise ValueError(
+                    "gateway.profile_routes contains target profile(s) outside "
+                    "gateway.multiplex_profile_allowlist: " + details
+                )
+
+            # A configured route is an explicit authority boundary. Refuse to
+            # start with a target missing on disk rather than accepting traffic
+            # and later falling back to the privileged default profile.
+            from hermes_cli.profiles import profile_exists
+            missing_routes = [
+                route for route in self.profile_routes
+                if not profile_exists(route.profile)
+            ]
+            if missing_routes:
+                details = ", ".join(
+                    f"{route.name or '<unnamed>'!r} -> {route.profile!r}"
+                    for route in missing_routes
+                )
+                raise ValueError(
+                    "gateway.profile_routes contains target profile(s) that do "
+                    "not exist: " + details
+                )
 
     def get_connected_platforms(self) -> List[Platform]:
         """Enabled + configured platforms, sorted by value so the rendered "Connected
@@ -720,6 +806,9 @@ class GatewayConfig:
         except (TypeError, ValueError):
             session_store_max_age_days = 90
 
+        # Fail-closed enforcement of gateway.multiplex_profile_allowlist against
+        # profile_routes now happens in __post_init__ (needs the normalized
+        # allowlist, which isn't available yet at this point in from_dict).
         from gateway.profile_routing import parse_profile_routes
 
         return cls(
@@ -732,6 +821,7 @@ class GatewayConfig:
             stt_echo_transcripts=_coerce_bool(stt_setting("stt_echo_transcripts", "echo_transcripts"), True),
             multiplex_profiles=_coerce_bool(multiplex_profiles, False),
             multiplex_profile_allowlist=pick("multiplex_profile_allowlist"),
+            multiplex_route_only_profiles=pick("multiplex_route_only_profiles"),
             room_link_url=room_link_url if isinstance(room_link_url, str) else None,
             systemd_watchdog_seconds=systemd_watchdog_seconds,
             loop_watchdog=_coerce_bool(pick("loop_watchdog"), True),

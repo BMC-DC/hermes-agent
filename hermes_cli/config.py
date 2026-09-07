@@ -3406,6 +3406,13 @@ def _guard_section_overwrite(key: str, value: Any, user_config: Dict[str, Any], 
     print("\n".join(err), file=sys.stderr)
     sys.exit(1)
 
+    # Our original patch here special-cased ``gateway.profile_routes`` to require
+    # strict JSON so the CLI wouldn't silently store the route list as an unusable
+    # string. Superseded by upstream's `_coerce_config_set_value` (used by
+    # set_config_value below), which now generically parses any structured
+    # (list/dict) value via `yaml.safe_load` -- a JSON array is valid YAML, so
+    # `gateway.profile_routes` already gets real list parsing without a special
+    # case. Intentionally dropped rather than kept redundant.
 
 def _touch_skin_file(key: str, value: Any) -> None:
     """``display.skin`` set means "apply NOW": bump the skin file's mtime so the gateway watcher's

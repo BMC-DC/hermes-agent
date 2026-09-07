@@ -176,6 +176,44 @@ class TestProfileRuntimeStatus:
         ]
 
 
+class TestMultiplexProfileAllowlist:
+    @pytest.mark.asyncio
+    async def test_secondary_start_skips_profiles_outside_allowlist(self, monkeypatch):
+        runner = GatewayRunner.__new__(GatewayRunner)
+        runner.config = GatewayConfig(
+            multiplex_profiles=True,
+            multiplex_profile_allowlist=["guest"],
+        )
+        runner.adapters = {}
+        runner._failed_platforms = {}
+        runner._profile_adapters = {}
+        runner.pairing_stores = {}
+        runner.pairing_store = object()
+
+        monkeypatch.setattr(
+            "hermes_cli.profiles.profiles_to_serve",
+            lambda multiplex: [
+                ("default", "/default"),
+                ("guest", "/guest"),
+                ("other", "/other"),
+            ],
+        )
+        monkeypatch.setattr(
+            "hermes_cli.profiles.get_active_profile_name", lambda: "default"
+        )
+
+        started = []
+
+        async def _start(name, home, claimed):
+            started.append((name, home))
+            return 0
+
+        runner._start_one_profile_adapters = _start
+        await runner._start_secondary_profile_adapters()
+
+        assert started == [("guest", "/guest")]
+
+
 class _SecondaryRecoveryAdapter:
     platform = Platform.DISCORD
 

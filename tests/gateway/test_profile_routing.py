@@ -46,6 +46,27 @@ class TestProfileRouteMatching:
         # guild matches but chat differs -> NO match
         assert not r.matches("discord", guild_id="111", chat_id="333")
 
+    def test_user_id_route_is_exact_and_conjunctive(self):
+        route = ProfileRoute(
+            name="telegram-user",
+            platform="telegram",
+            profile="guest",
+            user_id="123456789",
+        )
+        assert route.matches("telegram", user_id="123456789")
+        assert not route.matches("telegram", user_id="987654321")
+        assert not route.matches("discord", user_id="123456789")
+
+    def test_chat_type_route_is_exact(self):
+        route = ProfileRoute(
+            name="telegram-dm",
+            platform="telegram",
+            profile="guest",
+            chat_type="dm",
+        )
+        assert route.matches("telegram", chat_type="dm")
+        assert not route.matches("telegram", chat_type="group")
+
 
 class TestParseProfileRoutes:
     def test_empty(self):
@@ -95,6 +116,38 @@ class TestMatchProfileRoute:
             ProfileRoute(name="r", platform="telegram", profile="p"),
         ]
         assert match_profile_route(routes, "discord") is None
+
+    def test_user_route_outranks_platform_fallback(self):
+        routes = parse_profile_routes(
+            [
+                {
+                    "name": "telegram-guest-fallback",
+                    "platform": "telegram",
+                    "profile": "guest",
+                    "chat_type": "dm",
+                },
+                {
+                    "name": "telegram-admin",
+                    "platform": "telegram",
+                    "profile": "default",
+                    "user_id": 123456789,
+                    "chat_type": "dm",
+                },
+            ]
+        )
+        matched_admin = match_profile_route(
+            routes, "telegram", chat_type="dm", user_id="123456789"
+        )
+        assert matched_admin is not None
+        assert matched_admin.profile == "default"
+        matched_guest = match_profile_route(
+            routes, "telegram", chat_type="dm", user_id="987654321"
+        )
+        assert matched_guest is not None
+        assert matched_guest.profile == "guest"
+        assert match_profile_route(
+            routes, "telegram", chat_type="group", user_id="987654321"
+        ) is None
 
 
 class TestSessionKeyIntegration:
