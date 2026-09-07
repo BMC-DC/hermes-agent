@@ -142,7 +142,13 @@ def _validate_moa(req: _Request) -> dict[str, Any]:
 
 
 def _reject_whitespace(req: _Request) -> Optional[dict[str, Any]]:
-    if any(ch.isspace() for ch in req.requested):
+    if req.normalized == "nexosai":
+        # nexos.ai exposes human-readable model ids that legitimately contain
+        # spaces (e.g. "Claude Opus 4.8"); reject only tab/newline/control ws.
+        has_bad_whitespace = any(ch in "\t\n\r\f\v" for ch in req.requested)
+    else:
+        has_bad_whitespace = any(ch.isspace() for ch in req.requested)
+    if has_bad_whitespace:
         return _reject("Model names cannot contain spaces.")
     return None
 

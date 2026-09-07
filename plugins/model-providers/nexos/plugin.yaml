@@ -1,0 +1,5 @@
+name: nexosai-provider
+kind: model-provider
+version: 1.0.0
+description: Nexos.ai AI gateway (unified, multi-provider model access)
+author: Hostinger

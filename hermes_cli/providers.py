@@ -91,6 +91,12 @@ HERMES_OVERLAYS: Dict[str, HermesOverlay] = {
     # would treat a Vertex MoA slot as an unknown custom endpoint, losing the identity
     # _refresh_provider_credentials() needs to re-mint an expired token on 401.
     "vertex": HermesOverlay(auth_type="vertex"),
+    "nexosai": HermesOverlay(
+        transport="openai_chat",
+        extra_env_vars=("NEXOS_API_KEY",),
+        base_url_override="https://api.nexos.ai/v1",
+        base_url_env_var="NEXOS_BASE_URL",
+    ),
 }
 
 
@@ -135,6 +141,7 @@ _ALIAS_GROUPS: Dict[str, Tuple[str, ...]] = {
     "nebius-token-factory": ("nebius", "nebius-tokenfactory", "nebius-tf", "token-factory", "tokenfactory"),
     "lmstudio": ("lmstudio", "lm-studio", "lm_studio"), "custom": ("ollama",),
     "local": ("vllm", "llamacpp", "llama.cpp", "llama-cpp"),
+    "nexosai": ("nexos", "nexos.ai", "nexos-ai"),
 }
 ALIASES: Dict[str, str] = {alias: canon for canon, aliases in _ALIAS_GROUPS.items() for alias in aliases}
 
@@ -148,6 +155,7 @@ _LABEL_OVERRIDES: Dict[str, str] = {
     "nebius-token-factory": "Nebius Token Factory", "tencent-tokenplan": "Tencent TokenPlan", "lmstudio": "LM Studio",
     "local": "Local endpoint", "bedrock": "AWS Bedrock", "vertex": "Google Vertex AI", "ollama-cloud": "Ollama Cloud",
     "xai-oauth": "xAI Grok OAuth (SuperGrok / Premium+)", "opencode-free": "OpenCode Free",
+    "nexosai": "Nexos.ai",
 }
 
 
