@@ -1246,6 +1246,7 @@ def _refuse_env_adoption_if_config_corrupt() -> None:
 # (plugins/model-providers/<name>/) are layered on at call time; this hardcoded
 # table remains authoritative for existing names.
 _PROVIDER_ALIASES: Dict[str, str] = {
+    "openai": "openai-api",
     "glm": "zai", "z-ai": "zai", "z.ai": "zai", "zhipu": "zai",
     "google": "gemini", "google-gemini": "gemini", "google-ai-studio": "gemini",
     "x-ai": "xai", "x.ai": "xai", "grok": "xai",
