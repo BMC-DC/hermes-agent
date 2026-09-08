@@ -127,10 +127,11 @@ class TestRoutingConsultation:
         with patch("hermes_cli.profiles.get_active_profile_name", return_value="active"):
             with patch("hermes_cli.profiles.get_profile_dir") as mock_get_dir:
                 mock_get_dir.return_value = Path("/hermes/profiles/routed")
-                
+
                 mock_runner._profile_name_for_source = MagicMock(return_value="routed")
-                
-                mock_runner._resolve_profile_home_for_source(discord_source)
+
+                with patch("hermes_cli.profiles.profile_exists", return_value=True):
+                    mock_runner._resolve_profile_home_for_source(discord_source)
                 
                 # Should have called routing
                 mock_runner._profile_name_for_source.assert_called_once_with(discord_source)
@@ -241,7 +242,12 @@ class TestNonDiscordProfileRouting:
         telegram_source.chat_type = "dm"
         telegram_source.profile = None
 
-        assert mock_runner._profile_name_for_source(telegram_source) == "guest"
+        with patch(
+            "hermes_cli.profiles.profiles_to_serve",
+            return_value=[("default", Path("/profiles/default")),
+                          ("guest", Path("/profiles/guest"))],
+        ):
+            assert mock_runner._profile_name_for_source(telegram_source) == "guest"
 
 
 class TestGatewayRunnerInjection:

@@ -5019,6 +5019,13 @@ class GatewayRunner(
                     getattr(source, "profile", None) or "(route lookup)",
                     exc,
                 )
+                # Mark the rejection on the source itself too -- sources built
+                # directly (bypassing BasePlatformAdapter.build_source(), which
+                # sets this from its own try/except) would otherwise leave a
+                # caller checking this flag afterward none the wiser that the
+                # event was actually denied here.
+                with suppress(Exception):
+                    source.profile_route_rejected = True
                 return None
 
         # Ignored-channel guard runs FIRST — before startup-restore queueing,

@@ -192,10 +192,14 @@ class TestMultiplexProfileAllowlist:
 
         monkeypatch.setattr(
             "hermes_cli.profiles.profiles_to_serve",
-            lambda multiplex: [
-                ("default", "/default"),
-                ("guest", "/guest"),
-                ("other", "/other"),
+            lambda multiplex, profile_allowlist=None: [
+                (name, home)
+                for name, home in (
+                    ("default", "/default"),
+                    ("guest", "/guest"),
+                    ("other", "/other"),
+                )
+                if profile_allowlist is None or name == "default" or name in profile_allowlist
             ],
         )
         monkeypatch.setattr(
