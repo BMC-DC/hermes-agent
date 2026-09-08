@@ -291,6 +291,12 @@ COPY --link --chmod=a+rX,go-w . .
 # resolution or downloads.
 RUN uv pip install --no-cache-dir --no-deps -e "."
 
+# BMC/Vidu: dependencies for the custom search-console MCP script
+# (tools/search_console_mcp.py, read-only Google Search Console access).
+# Installed into Hermes's own venv rather than a separate one -- there's no
+# reason to duplicate a whole interpreter for three small packages.
+RUN uv pip install --no-cache-dir requests google-auth mcp
+
 # Wire the exec shim and install-method stamp.  Files under /opt/hermes are
 # already root-owned (COPY, uv sync, npm install all run as root) and
 # read-only for the hermes user (go-w from the --chmod above).
