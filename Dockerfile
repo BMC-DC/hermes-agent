@@ -295,7 +295,11 @@ RUN uv pip install --no-cache-dir --no-deps -e "."
 # (tools/search_console_mcp.py, read-only Google Search Console access).
 # Installed into Hermes's own venv rather than a separate one -- there's no
 # reason to duplicate a whole interpreter for three small packages.
-RUN uv pip install --no-cache-dir requests google-auth mcp
+# Standalone `fastmcp`, not `mcp` -- Hermes's own pyproject.toml already pins
+# mcp==2.0.0 (an internal/dev version without the mcp.server.fastmcp
+# submodule this script needs); fastmcp's top-level FastMCP class is the same
+# API without fighting that pin.
+RUN uv pip install --no-cache-dir requests google-auth fastmcp
 
 # Wire the exec shim and install-method stamp.  Files under /opt/hermes are
 # already root-owned (COPY, uv sync, npm install all run as root) and
