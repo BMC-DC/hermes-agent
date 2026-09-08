@@ -764,20 +764,28 @@ def _resolve_command_cwd(
     ``default_cwd``.
 
     The record is written after every completed command of THIS session, so
-    it is the session's ``cd`` state with no shared-env ambiguity. On
-    container backends a recorded HOST path (a desktop/TUI surface registering
-    its workspace) is unusable in the sandbox — ``cd <host path>`` fails with
-    exit 126 — so it is discarded in favor of ``default_cwd``.
+    it is the session's ``cd`` state with no shared-env ambiguity. A recorded
+    HOST path (a desktop/TUI surface registering its own client-side
+    workspace, not the server's) is unusable wherever the command actually
+    runs — ``cd <host path>`` fails with exit 126 — so it is discarded in
+    favor of ``default_cwd``. This used to be checked only for container
+    backends, but a remote/desktop TUI can register a client-side path
+    against a ``local``-backend session too (BMC/Vidu #1: every command in
+    such a session failed uniformly with exit 126, including plain ``ls``,
+    because each one tried to ``cd`` into the bad recorded path first);
+    ``_is_unusable_container_cwd``'s actual check (host path or non-absolute)
+    doesn't depend on the backend being a sandboxed container, so it's applied
+    unconditionally here now.
 
     Same guard class as the env-creation sanitizers (#50636, #54447); this is the per-command sibling site.
     """
     if workdir:
         return workdir
     recorded = get_session_cwd(session_key)
-    if recorded and _is_container_backend(env_type) and _is_unusable_container_cwd(recorded):
+    if recorded and _is_unusable_container_cwd(recorded):
         logger.info(
             "Ignoring recorded session cwd %r for %s backend "
-            "(host/relative path won't work in sandbox). Using %r instead.",
+            "(host/relative path won't work here). Using %r instead.",
             recorded, env_type, default_cwd,
         )
         return default_cwd
