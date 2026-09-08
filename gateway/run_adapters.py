@@ -825,7 +825,12 @@ class GatewayAdapterLifecycleMixin:
     async def _start_secondary_profile_adapters(self) -> int:
         """Bring up adapters for every non-active profile (multiplex only); returns connected count.
         Each profile connects under its own HERMES_HOME + secret scope; credential/listener collisions
-        are refused here — the only point seeing every profile's credentials together."""
+        are refused here — the only point seeing every profile's credentials together.
+
+        ``multiplex_route_only_profiles`` may be selected by an inbound route but must
+        never own an adapter or scheduled-job runner -- they're skipped here (transport
+        ingress) but still included in the served/pairing-store set below, since a
+        message can still be routed to them."""
         from gateway.run import (
             MultiplexConfigError, SecondaryPortBindingConfigError, _multiplex_profile_homes
         )
@@ -839,9 +844,18 @@ class GatewayAdapterLifecycleMixin:
         connected = 0
         claimed = self._primary_resource_claims(active)
         profile_homes = _multiplex_profile_homes(self.config)
+        route_only_profiles = set(
+            getattr(self.config, "multiplex_route_only_profiles", []) or []
+        )
         for profile_name, profile_home in profile_homes:
             if profile_name == active:
                 continue  # handled by the primary startup loop
+            if profile_name in route_only_profiles:
+                logger.info(
+                    "[MULTIPLEX] Skipping transport startup for route-only profile '%s'",
+                    profile_name,
+                )
+                continue
             try:
                 connected += await self._start_one_profile_adapters(profile_name, profile_home, claimed)
             except SecondaryPortBindingConfigError as e:
