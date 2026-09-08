@@ -27,7 +27,35 @@ from collections import OrderedDict
 from contextvars import copy_context
 from pathlib import Path
 from datetime import datetime
-from typing import Awaitable, Callable, Dict, Optional, Any, List, Tuple, cast
+from typing import Awaitable, Callable, Dict, Optional, Any, List, Tuple, Union, cast
+
+# BMC/Vidu rebase note: these names used to be defined directly in this file at
+# our base version (v0.20.0). Upstream's refactor since split gateway/run.py into
+# several new submodules (gateway.shutdown_watchdog, gateway.restart,
+# gateway.run_adapters, agent.i18n, ...) and left a `_PLUGIN_COMPAT_LAZY`
+# `__getattr__` shim (below) for *external* callers -- but that shim does not
+# make these names resolve for bare in-module use, which our merged code (kept
+# from the pre-refactor patch) still relies on directly. Sourced from the
+# compat dict itself so these point at the exact same real definitions.
+from agent.i18n import t
+from gateway.config import platform_binds_port as _platform_binds_port
+from gateway.platforms.base import (
+    EphemeralReply,
+    build_auto_tts_output_path,
+    merge_pending_message_event,
+    utf16_len,
+    _prefix_within_utf16_limit,
+)
+from gateway.restart import GATEWAY_SERVICE_RESTART_EXIT_CODE
+from gateway.session import (
+    SessionEntry,
+    build_channel_continuity_note,
+    build_session_context,
+    is_shared_multi_user_session,
+    neutralize_untrusted_inline_text,
+)
+from gateway.shutdown_watchdog import arm_shutdown_watchdog, resolve_shutdown_watchdog_delay
+from utils import atomic_json_write
 
 from agent.async_utils import safe_schedule_threadsafe
 from agent.conversation_compression import (
