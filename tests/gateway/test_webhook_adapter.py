@@ -1111,3 +1111,51 @@ def test_route_profile_validation_fails_closed():
         assert WebhookAdapter._route_allows_profile(
             {"profile": malformed}, "worker"
         ) is False
+
+
+# ===================================================================
+# ${VAR} secret interpolation — global and per-route secrets may reference
+# an env var instead of embedding the literal value in config.yaml.
+# ===================================================================
+
+
+class TestSecretEnvInterpolation:
+    def test_global_secret_interpolates_from_env(self, monkeypatch):
+        monkeypatch.setenv("WEBHOOK_TEST_GLOBAL_SECRET", "resolved-global")
+        adapter = _make_adapter(secret="${WEBHOOK_TEST_GLOBAL_SECRET}")
+        assert adapter._global_secret == "resolved-global"
+
+    def test_route_secret_interpolates_from_env(self, monkeypatch):
+        monkeypatch.setenv("WEBHOOK_TEST_ROUTE_SECRET", "resolved-route")
+        adapter = _make_adapter(
+            routes={"gh": {"secret": "${WEBHOOK_TEST_ROUTE_SECRET}"}}
+        )
+        assert adapter._routes["gh"]["secret"] == "resolved-route"
+
+    def test_unset_env_var_falls_back_to_literal_placeholder(self, monkeypatch):
+        monkeypatch.delenv("WEBHOOK_TEST_MISSING_SECRET", raising=False)
+        adapter = _make_adapter(secret="${WEBHOOK_TEST_MISSING_SECRET}")
+        # Falls back to the literal string rather than resolving to "" or None,
+        # so startup's "no secret configured" validation still fires loudly.
+        assert adapter._global_secret == "${WEBHOOK_TEST_MISSING_SECRET}"
+
+    def test_literal_secret_is_left_untouched(self):
+        adapter = _make_adapter(
+            secret="plain-literal-secret",
+            routes={"gh": {"secret": "another-literal"}},
+        )
+        assert adapter._global_secret == "plain-literal-secret"
+        assert adapter._routes["gh"]["secret"] == "another-literal"
+
+    def test_resolved_route_secret_actually_gates_signature_validation(self, monkeypatch):
+        """The interpolated value, not the placeholder, must actually gate auth."""
+        monkeypatch.setenv("WEBHOOK_TEST_E2E_SECRET", "e2e-real-secret")
+        adapter = _make_adapter(routes={"gh": {"secret": "${WEBHOOK_TEST_E2E_SECRET}"}})
+        resolved_secret = adapter._routes["gh"]["secret"]
+        body = b'{"action":"opened"}'
+        good_sig = _github_signature(body, "e2e-real-secret")
+        bad_sig = _github_signature(body, "${WEBHOOK_TEST_E2E_SECRET}")  # signed with the raw placeholder text
+        good_req = _mock_request(headers={"X-Hub-Signature-256": good_sig})
+        bad_req = _mock_request(headers={"X-Hub-Signature-256": bad_sig})
+        assert adapter._validate_signature(good_req, body, resolved_secret) is True
+        assert adapter._validate_signature(bad_req, body, resolved_secret) is False

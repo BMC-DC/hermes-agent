@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -36,6 +37,28 @@ from gateway.platforms.webhook_filters import DEFAULT_SCRIPT_TIMEOUT_SECONDS, We
 from gateway.response_filters import is_autonomous_silence_response
 
 logger = logging.getLogger(__name__)
+
+# ${VAR_NAME} — the whole value, nothing else (deliberately stricter than mcp_tool_config's
+# embedded-anywhere pattern: a route secret is never a template with other text around it).
+_SECRET_ENV_VAR_PATTERN = re.compile(r"^\$\{([A-Za-z0-9_]+)\}$")
+
+
+def _resolve_env_secret(value: str) -> str:
+    """Resolve a bare ``${VAR_NAME}`` route/global secret from the process environment.
+
+    Deliberately NOT the profile-scoped ``agent.secret_scope.get_secret`` used by MCP tool
+    config: webhook routes are gateway-global, not per-profile, so a plain ``os.environ``
+    lookup avoids pulling in multiplexing/fail-closed behavior that doesn't apply here. A
+    missing env var falls back to the literal placeholder string (so startup validation's
+    "no secret configured" check still fires loudly instead of silently downgrading auth).
+    """
+    if not isinstance(value, str):
+        return value
+    m = _SECRET_ENV_VAR_PATTERN.match(value.strip())
+    if not m:
+        return value
+    return os.environ.get(m.group(1)) or value
+
 
 # _resolve_request_profile sentinel: /p/<profile>/ names a profile this gateway does not serve (→ 404);
 # distinct from None (no prefix / default).
@@ -160,8 +183,11 @@ class WebhookAdapter(BasePlatformAdapter):
         # Empty string / null host normalises to None ("bind all families").
         self._host: Optional[str] = extra.get("host", DEFAULT_HOST) or None
         self._port: int = int(extra.get("port", DEFAULT_PORT))
-        self._global_secret: str = extra.get("secret", "")
-        self._static_routes: Dict[str, dict] = extra.get("routes", {})
+        self._global_secret: str = _resolve_env_secret(extra.get("secret", ""))
+        self._static_routes: Dict[str, dict] = {
+            name: ({**route, "secret": _resolve_env_secret(route["secret"])} if "secret" in route else route)
+            for name, route in extra.get("routes", {}).items()
+        }
         self._dynamic_routes: Dict[str, dict] = {}
         self._dynamic_routes_mtime: float = 0.0
         self._routes: Dict[str, dict] = dict(self._static_routes)
