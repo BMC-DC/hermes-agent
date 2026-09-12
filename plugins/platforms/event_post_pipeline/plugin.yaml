@@ -1,0 +1,33 @@
+name: event_post_pipeline
+label: Event Post Pipeline
+version: 0.1.0
+description: >
+  Deterministic-code replacement for the event-post-pipeline skill's glue
+  steps (Kanban handoff, review-page create/update, WhatsApp link,
+  closing-the-loop comment). Stylus's drafting stays a normal agent turn;
+  everything else here runs as plain code with zero LLM cost, triggered by
+  its own HTTP listener and the kanban_task_completed lifecycle hook. Built
+  alongside (not replacing) the existing skill-driven path — see
+  extra/plans/socialpost/event-post-pipeline-deterministic-glue-plan.md in
+  the VIDUOPS repo for the full design and rollout plan.
+author: BMC-DC
+# Deliberately NOT "kind: platform": that gate registers only a LAZY loader,
+# materialized the first time platform_registry is asked for this platform
+# (i.e. only in a process that brings up gateway adapters). This plugin's
+# kanban_task_completed hook must register in EVERY process that might
+# complete one of its tasks -- including a Stylus worker subprocess that
+# never touches platform_registry at all. "standalone" loads eagerly at
+# plugin discovery time instead, gated only by config.yaml's
+# plugins.enabled (see the rollout section of the design doc) -- verified
+# empirically (see extra/plans/socialpost/...): "kind: platform" left the
+# hook silently unregistered in a worker-shaped process.
+kind: standalone
+optional_env:
+  - name: EVENT_POST_PIPELINE_WEBHOOK_SECRET
+    description: "HMAC secret for this plugin's /intake and /review-action routes (config.yaml platforms.event_post_pipeline.extra.secret: ${EVENT_POST_PIPELINE_WEBHOOK_SECRET})"
+    prompt: "Webhook HMAC secret"
+    password: true
+  - name: EVENT_REVIEW_CREATE_SECRET
+    description: "Shared bearer secret with social-post-portal's review-page API (same secret the existing skill-driven path already uses)"
+    prompt: "Review-page create secret"
+    password: true
