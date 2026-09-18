@@ -109,6 +109,11 @@ def handle_intake(conn, ops: KanbanOps, store: EventPostPipelineStore, *, submis
         {
             "root_task_id": task_id, "date": event_pack.get("date"), "description": description,
             "quote": event_pack.get("quote"), "images": _image_list(event_pack),
+            # Carried through to create_review() at first-round completion so
+            # post_submissions.submitted_by can be resolved (see plan doc's
+            # "Social Media Curator" ledger rationale) — same fields adapter.py's
+            # intake notification already reads off the raw event_pack.
+            "submitter_name": event_pack.get("submitterName"), "submitter_phone": event_pack.get("submitterPhone"),
         },
     )
     logger.info("event_post_pipeline: intake submission=%s -> task=%s", submission_id, task_id)
@@ -185,6 +190,7 @@ def _handle_first_round_completion(conn, ops, store, review_config, task, metada
             review_config, task_id=task.id, event_title=event_title, date=record.get("date", ""),
             images=record.get("images", []), fb=metadata["fb"], ig=metadata["ig"], blog_body=blog["body"],
             blog_seo=_blog_seo_payload(blog),
+            submitter_name=record.get("submitter_name"), submitter_phone=record.get("submitter_phone"),
         )
     except ReviewClientError as exc:
         raise PipelineError(str(exc)) from exc
