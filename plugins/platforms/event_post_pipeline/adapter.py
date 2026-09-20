@@ -26,7 +26,7 @@ except ImportError:
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import BasePlatformAdapter, SendResult
-from plugins.platforms.event_post_pipeline import models, pipeline, security
+from plugins.platforms.event_post_pipeline import db, models, pipeline, security, whatsapp_notify
 from plugins.platforms.event_post_pipeline.store import EventPostPipelineStore, resolve_store_path
 
 logger = logging.getLogger("plugins.platforms.event_post_pipeline")
@@ -57,6 +57,11 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
         self._secret: str = security.resolve_env_secret(extra.get("secret", ""))
         self._board: Optional[str] = extra.get("board")
         self._store = EventPostPipelineStore(resolve_store_path(extra.get("store_path")))
+        # v2 curator registry + lock fields (see db.py's module docstring). Deliberately
+        # optional here: a profile that hasn't opted into the Postgres path yet (no
+        # SPP_DATABASE_URL) just gets no curator-resolved notifications, never a crash —
+        # same "degrade gracefully" rule the rest of this plugin already follows.
+        self._db_url: str = db.resolve_database_url(extra)
         self._runner = None
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
@@ -131,7 +136,48 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
         except pipeline.PipelineError as exc:
             logger.error("[event_post_pipeline] intake failed for submission=%s: %s", submission_id, exc)
             return _json_error("intake_failed", 502)
+        await self._notify_submission_arrived(submission_id, payload, task_id)
         return web.json_response({"status": "accepted", "task_id": task_id}, status=202)
+
+    async def _notify_submission_arrived(self, submission_id: str, payload: dict, task_id: str) -> None:
+        """Lifecycle events "submission arrived" and "Stylus started drafting" (plan doc's
+        lifecycle table) — merged into one instant WhatsApp message rather than two,
+        since both fire from this exact call site at the exact same instant with
+        overlapping information (a second near-duplicate message a moment later would be
+        pure noise, not a distinct event a recipient could act on differently). See the
+        plugin's own review comment / final report for this deviation from the plan doc's
+        literal two-row table.
+
+        ``submitterName``/``submitterPhone`` are read from the intake payload if present
+        (the "required name + WhatsApp number" field the plan doc describes adding to the
+        shared intake form) but social-post-portal does not send them yet as of this
+        build — this degrades to an "unidentified submitter" message rather than failing,
+        and starts including the real name/number automatically once the portal-side form
+        field ships, with no Hermes-side change needed.
+        """
+        if not self._db_url:
+            return
+        submitter_name = str(payload.get("submitterName") or "").strip()
+        submitter_phone = str(payload.get("submitterPhone") or "").strip()
+        try:
+            curators = await asyncio.to_thread(self._resolve_review_pool, submitter_phone, submitter_name)
+        except db.DatabaseError as exc:
+            logger.error("[event_post_pipeline] could not resolve curators for submission notify: %s", exc)
+            return
+        who = f"{submitter_name} ({submitter_phone})" if (submitter_name or submitter_phone) else "an unidentified submitter"
+        message = f"New event post submission from {who} — drafting has started (task {task_id})."
+        await whatsapp_notify.notify_curators(curators, message)
+
+    def _resolve_review_pool(self, submitter_phone: str, submitter_name: str) -> list:
+        """Upserts the submitter (if a phone was provided) as a publisher, then returns
+        the reviewer+admin pool who should hear about the new submission."""
+        conn = db.get_connection(self._db_url)
+        try:
+            if submitter_phone:
+                db.upsert_curator(conn, submitter_phone, submitter_name or submitter_phone, is_publisher=True)
+            return db.list_curators_by_role(conn, is_reviewer=True, is_admin=True)
+        finally:
+            conn.close()
 
     def _run_intake(self, submission_id: str, payload: dict) -> str:
         from hermes_cli import kanban_db as kb
@@ -156,7 +202,42 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
         except pipeline.PipelineError as exc:
             logger.error("[event_post_pipeline] review action failed for task=%s: %s", action.task_id, exc)
             return _json_error("action_failed", 502)
+        await self._notify_review_action(action, result)
         return web.json_response({"ok": True, **result})
+
+    async def _notify_review_action(self, action: models.ReviewActionPayload, result: dict) -> None:
+        """Lifecycle event "review action taken" (plan doc's lifecycle table): notifies
+        the original submitter that their draft was approved/rejected/sent back for a
+        refine. Silently a no-op when Postgres isn't configured, or when this submission
+        has no matching ``post_submissions`` row yet (e.g. it predates the v2 cutover) —
+        never fails the review action itself over a notification problem."""
+        if not self._db_url:
+            return
+        try:
+            _submission, curator = await asyncio.to_thread(self._resolve_submitter, action.task_id)
+        except db.DatabaseError as exc:
+            logger.error("[event_post_pipeline] could not resolve submitter for review-action notify: %s", exc)
+            return
+        if curator is None:
+            return
+        verb = {"approved": "approved", "rejected": "rejected", "refine": "sent back for a refine"}.get(action.action, action.action)
+        message = f"Your {action.platform.upper()} draft was {verb} on review."
+        if action.comment:
+            message += f" Reviewer note: {action.comment}"
+        try:
+            await whatsapp_notify.send_whatsapp_to_curator(curator, message)
+        except whatsapp_notify.WhatsAppNotifyError as exc:
+            logger.error("[event_post_pipeline] review-action notify send failed: %s", exc)
+
+    def _resolve_submitter(self, task_id: str) -> "tuple[Optional[dict], Optional[dict]]":
+        conn = db.get_connection(self._db_url)
+        try:
+            submission = db.get_submission_by_task_id(conn, task_id)
+            if submission is None or not submission.get("submitted_by"):
+                return submission, None
+            return submission, db.get_curator(conn, submission["submitted_by"])
+        finally:
+            conn.close()
 
     def _run_review_action(self, action: models.ReviewActionPayload) -> dict:
         from hermes_cli import kanban_db as kb

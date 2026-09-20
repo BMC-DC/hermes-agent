@@ -51,13 +51,24 @@ def create_review(
     ig: str,
     blog_body: str,
     blog_seo: dict[str, Any],
+    submitter_name: Optional[str] = None,
+    submitter_phone: Optional[str] = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> str:
-    """Creates the review page; returns its full URL."""
-    payload = {
+    """Creates the review page; returns its full URL.
+
+    ``submitter_name``/``submitter_phone`` are optional and additive to the
+    existing contract — the portal resolves ``post_submissions.submitted_by``
+    from them when present, and leaves it NULL otherwise (older callers, or a
+    submission the shared-login field didn't capture, are unaffected).
+    """
+    payload: dict[str, Any] = {
         "taskId": task_id, "eventTitle": event_title, "date": date, "images": images,
         "fb": fb, "ig": ig, "blogBody": blog_body, "blogSeo": blog_seo,
     }
+    if submitter_name and submitter_phone:
+        payload["submitterName"] = submitter_name
+        payload["submitterPhone"] = submitter_phone
     result = _post_json(f"{config.base_url}/api/event-review", payload, config.create_secret, timeout=timeout)
     url = result.get("url")
     if not isinstance(url, str) or not url:
