@@ -125,6 +125,10 @@ dependencies = [
   "websockets==15.0.1",
   # .gitignore-aware file matching for desktop build stamp.
   "pathspec==1.1.1",
+  # Postgres driver for the SPP v2 curator registry / review-lock / publish-log
+  # tables (plugins/platforms/event_post_pipeline/db.py). Binary wheel, no
+  # system libpq headers required at build time.
+  "psycopg2-binary==2.9.10",
   "fastapi>=0.104.0,<1",
   # CIDR-aware forwarded_allow_ips requires uvicorn >=0.31.0.
   "uvicorn[standard]>=0.31.0,<1",
