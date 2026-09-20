@@ -62,22 +62,63 @@ def on_kanban_task_completed(*, task_id: str, **_kwargs: Any) -> None:
     message = _notification_message(result)
     if not message:
         return
+
+    # This whole block is deliberately wrapped: the caller (Hermes's own
+    # _fire_kanban_lifecycle_hook) swallows ANY exception from a hook callback
+    # at logging.DEBUG level ("failures are swallowed so an observer can
+    # never break a transition") — invisible in a normal production log at
+    # INFO level. A notification failure here must never look like silence;
+    # log it ourselves at ERROR before it disappears upstream.
+    try:
+        db_url = db.resolve_database_url(extra)
+        curators = _reviewer_pool(db_url) if db_url else []
+        if curators:
+            # v2 path: curator-resolved recipients, never config.yaml's hardcoded
+            # chat_id (plan doc's explicit requirement) — "Stylus finished" and
+            # "review link ready" are deliberately sent as a single message here
+            # for the same reason ``adapter.py``'s intake notification merges its
+            # own pair: both fire from this one hook callback at the exact same
+            # instant with overlapping information.
+            _run_async(lambda: whatsapp_notify.notify_curators(curators, message))
+        else:
+            # No Postgres configured for this profile, or no reviewer curators
+            # registered yet (e.g. before anyone has ever claimed a review) —
+            # fall back to v1's single hardcoded home-channel recipient rather
+            # than silently sending nothing.
+            _run_async(lambda: whatsapp_notify.send_whatsapp_link(message))
+    except Exception:
+        logger.exception(
+            "[event_post_pipeline] notification failed for task=%s (result=%s) — "
+            "this would otherwise be silently swallowed at DEBUG level by "
+            "hermes_cli.kanban_db._fire_kanban_lifecycle_hook", task_id, result,
+        )
+
+
+def _run_async(coro_factory) -> None:
+    """Runs an async call site's coroutine safely regardless of whether this
+    thread already has a running event loop.
+
+    This hook fires inside a Kanban worker process whose execution context
+    this plugin cannot assume anything about (per this module's docstring —
+    "the gateway may not even be running here"). A bare ``asyncio.run(...)``
+    raises ``RuntimeError: asyncio.run() cannot be called from a running
+    event loop`` if the calling thread already has one active — and per the
+    swallowing behavior documented above, that error was disappearing
+    completely rather than surfacing anywhere. Detect that case and run the
+    coroutine on a dedicated thread with its own fresh loop instead of
+    nesting.
+    """
     import asyncio
 
-    db_url = db.resolve_database_url(extra)
-    curators = _reviewer_pool(db_url) if db_url else []
-    if curators:
-        # v2 path: curator-resolved recipients, never config.yaml's hardcoded chat_id
-        # (plan doc's explicit requirement) — "Stylus finished" and "review link ready"
-        # are deliberately sent as a single message here for the same reason
-        # ``adapter.py``'s intake notification merges its own pair: both fire from this
-        # one hook callback at the exact same instant with overlapping information.
-        asyncio.run(whatsapp_notify.notify_curators(curators, message))
-    else:
-        # No Postgres configured for this profile, or no reviewer curators registered yet
-        # (e.g. before anyone has ever claimed a review) — fall back to v1's single
-        # hardcoded home-channel recipient rather than silently sending nothing.
-        asyncio.run(whatsapp_notify.send_whatsapp_link(message))
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(coro_factory())
+        return
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        pool.submit(asyncio.run, coro_factory()).result()
 
 
 def _reviewer_pool(db_url: str) -> list:
