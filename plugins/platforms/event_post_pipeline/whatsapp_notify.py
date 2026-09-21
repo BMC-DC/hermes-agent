@@ -15,25 +15,19 @@ So this always goes through the same out-of-process path real cron jobs use
 ``tools/send_message_senders.py``'s identical live-adapter-first-else-
 standalone fallback), rather than assuming an in-process adapter exists.
 
-Two recipient shapes, same two send paths underneath:
-
-- ``send_whatsapp_link`` (kept from v1, unchanged): the single hardcoded
-  ``platforms.whatsapp.home_channel.chat_id`` from ``config.yaml`` — still
-  used wherever a call site hasn't been migrated to curator-resolved
-  recipients.
-- ``send_whatsapp_to_curator`` / ``send_whatsapp_to_phone`` (new, v2): resolve
-  a JID from a ``social_media_curators`` row (or a bare phone number) via
-  ``gateway/whatsapp_identity.py``'s ``to_whatsapp_jid()``, then send through
-  the exact same ``_via_live_adapter``/``_via_standalone_sender`` machinery —
-  only the target chat_id changes, never the transport.
+Every notification (decided 2026-09-21) goes to the single hardcoded
+``platforms.whatsapp.home_channel.chat_id`` from ``config.yaml`` — the
+shared social-media group, never an individual curator's DM. An earlier v2
+design resolved per-curator JIDs from ``social_media_curators`` for
+targeted DMs; the team decided every notification should be visible to the
+whole group instead, so that resolution path was removed as dead code
+(git history has it if a future targeted-DM need ever comes back).
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from types import SimpleNamespace
-from typing import Iterable, Optional
+from typing import Optional
 
 logger = logging.getLogger("plugins.platforms.event_post_pipeline")
 
@@ -106,61 +100,9 @@ async def send_whatsapp_message(chat_id: str, message: str) -> None:
 
 
 async def send_whatsapp_link(message: str) -> None:
-    """v1 behavior, unchanged: the single hardcoded home-channel recipient. Still used by
-    any call site not yet migrated to curator-resolved recipients."""
+    """The one send path every call site uses: the single hardcoded home-channel
+    recipient (the shared social-media WhatsApp group)."""
     _, chat_id = _load_whatsapp_config()
     if not chat_id:
         raise WhatsAppNotifyError("no WhatsApp home_channel configured")
     await send_whatsapp_message(chat_id, message)
-
-
-def curator_jid(curator: dict) -> str:
-    """The outbound JID for a ``social_media_curators`` row (or any dict with a
-    ``phone_number`` key) — never ``config.yaml``, per the plan doc's requirement that
-    v2 recipients come exclusively from the curator registry."""
-    from gateway.whatsapp_identity import to_whatsapp_jid
-
-    phone = (curator or {}).get("phone_number") or ""
-    return to_whatsapp_jid(phone)
-
-
-async def send_whatsapp_to_curator(curator: dict, message: str) -> None:
-    """Sends to one curator row, resolved to a JID via ``to_whatsapp_jid()``."""
-    jid = curator_jid(curator)
-    if not jid:
-        raise WhatsAppNotifyError(f"curator has no usable phone_number to resolve a JID from: {curator!r}")
-    await send_whatsapp_message(jid, message)
-
-
-async def send_whatsapp_to_phone(phone_number: str, message: str) -> None:
-    """Sends to a bare phone number, resolved to a JID via ``to_whatsapp_jid()`` — for
-    call sites that have a phone but haven't (yet) upserted/looked up the curator row."""
-    from gateway.whatsapp_identity import to_whatsapp_jid
-
-    jid = to_whatsapp_jid(phone_number)
-    if not jid:
-        raise WhatsAppNotifyError(f"could not resolve a JID from phone_number={phone_number!r}")
-    await send_whatsapp_message(jid, message)
-
-
-async def notify_curators(curators: Iterable[dict], message: str) -> None:
-    """Best-effort fan-out to several curators (e.g. "publisher + admin"): one curator's
-    send failure is logged and does not stop the others from being notified — matching
-    this plugin's overall rule that a notification problem should never take down the
-    deterministic pipeline logic around it."""
-    seen_phones: set[str] = set()
-    for curator in curators:
-        phone = (curator or {}).get("phone_number")
-        if not phone or phone in seen_phones:
-            continue  # de-dup: the same person may hold more than one matching role flag
-        seen_phones.add(phone)
-        try:
-            await send_whatsapp_to_curator(curator, message)
-        except WhatsAppNotifyError as exc:
-            logger.error("event_post_pipeline: WhatsApp notify failed for curator id=%s: %s", curator.get("id"), exc)
-
-
-def run_notify_curators(curators: Iterable[dict], message: str) -> None:
-    """Sync convenience wrapper (``asyncio.run``) for call sites that aren't already
-    inside an event loop — mirrors ``hooks.py``'s existing ``asyncio.run(...)`` usage."""
-    asyncio.run(notify_curators(list(curators), message))

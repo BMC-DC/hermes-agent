@@ -69,37 +69,24 @@ def _reminder_message(submission: dict) -> str:
 
 
 def sweep_lock_timeouts(conn, *, lock_ttl_seconds: int) -> list[dict[str, Any]]:
-    """Releases every expired lock and notifies publisher + admin for each. Returns the
-    released rows (for the caller's summary/tests)."""
+    """Releases every expired lock and notifies the shared social-media group for each
+    (decided 2026-09-21: every pipeline notification goes to the group, not an individual
+    curator's DM — the team wants shared visibility into all activity, not fragmented
+    per-person messages). Returns the released rows (for the caller's summary/tests)."""
     released = db.release_expired_locks(conn, ttl_seconds=lock_ttl_seconds)
     for submission in released:
-        recipients: list[dict[str, Any]] = list(db.list_curators_by_role(conn, is_publisher=True, is_admin=True))
-        submitted_by = submission.get("submitted_by")
-        if submitted_by and not any(c.get("id") == submitted_by for c in recipients):
-            publisher = db.get_curator(conn, submitted_by)
-            if publisher is not None:
-                recipients.append(publisher)
-        if recipients:
-            asyncio.run(whatsapp_notify.notify_curators(recipients, _lock_timeout_message(submission)))
-        else:
-            logger.warning("spp_review_sweep: no publisher/admin curators to notify for released lock on submission #%s", submission.get("id"))
+        asyncio.run(whatsapp_notify.send_whatsapp_link(_lock_timeout_message(submission)))
     return released
 
 
 def sweep_pending_reminders(conn, *, reminder_interval_seconds: int) -> list[dict[str, Any]]:
-    """Sends the "review is waiting" nudge to the reviewer pool for every submission whose
+    """Sends the "review is waiting" nudge to the shared group for every submission whose
     reminder is due, then stamps ``last_reminder_at`` — only after a successful send attempt
     (a delivery *failure* still stamps, matching a cron script's "best effort, don't jam the
-    queue on one bad number" expectations; the stamp only reflects the notification being
-    tried, not necessarily delivered end-to-end, since fan-out to several curators may have
-    mixed per-recipient outcomes already logged by ``notify_curators``)."""
+    queue on one bad number" expectations)."""
     due = db.find_due_reminders(conn, interval_seconds=reminder_interval_seconds)
-    reviewers = db.list_curators_by_role(conn, is_reviewer=True)
     for submission in due:
-        if reviewers:
-            asyncio.run(whatsapp_notify.notify_curators(reviewers, _reminder_message(submission)))
-        else:
-            logger.warning("spp_review_sweep: no reviewer curators to remind about submission #%s", submission.get("id"))
+        asyncio.run(whatsapp_notify.send_whatsapp_link(_reminder_message(submission)))
         db.stamp_reminder_sent(conn, submission["id"])
     return due
 

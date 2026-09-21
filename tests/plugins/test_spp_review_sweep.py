@@ -2,13 +2,16 @@
 (``scripts/spp_review_sweep.py``): the two independent, unrelated checks it
 runs every tick (1hr lock-timeout release, 2hr pending-review reminder).
 
-Mocks ``db.*`` and ``whatsapp_notify.notify_curators`` rather than a real
+Mocks ``db.*`` and ``whatsapp_notify.send_whatsapp_link`` rather than a real
 Postgres or a real WhatsApp send — same test-double approach as
 ``tests/plugins/test_event_post_pipeline_db.py`` for the same reason (no
-existing fixture for a live Postgres server in this repo), plus it keeps
-these tests focused on the script's own branching logic (what gets queried,
-who gets notified, when the reminder timestamp gets stamped) rather than
-re-testing ``db.py``'s SQL, which already has its own test file.
+existing fixture for a live Postgres server in this repo).
+
+Decided 2026-09-21: every pipeline notification goes to the shared
+social-media WhatsApp group (``send_whatsapp_link``), never an individual
+curator's DM (``notify_curators``) — the team wants shared visibility into
+all activity rather than fragmented per-person messages. These tests no
+longer assert anything about curator-pool resolution for routing purposes.
 """
 
 from __future__ import annotations
@@ -26,39 +29,31 @@ class _FakeConn:
     pass
 
 
-def test_sweep_lock_timeouts_notifies_publisher_and_admin(monkeypatch):
+def test_sweep_lock_timeouts_notifies_the_group(monkeypatch):
     released_rows = [{"id": 1, "slug": "abc", "submitted_by": 7}]
-    admin_and_publisher_rows = [{"id": 3, "phone_number": "+1admin", "is_admin": True}]
     monkeypatch.setattr(db, "release_expired_locks", lambda conn, ttl_seconds: released_rows)
-    monkeypatch.setattr(db, "list_curators_by_role", lambda conn, **kw: admin_and_publisher_rows)
-    monkeypatch.setattr(db, "get_curator", lambda conn, cid: {"id": 7, "phone_number": "+1pub"})
     notified = []
 
-    async def fake_notify(curators, message):
-        notified.append((list(curators), message))
+    async def fake_send(message):
+        notified.append(message)
 
-    monkeypatch.setattr(sweep.whatsapp_notify, "notify_curators", fake_notify)
+    monkeypatch.setattr(sweep.whatsapp_notify, "send_whatsapp_link", fake_send)
 
     released = sweep.sweep_lock_timeouts(_FakeConn(), lock_ttl_seconds=3600)
 
     assert released == released_rows
     assert len(notified) == 1
-    curators, message = notified[0]
-    # The publisher (submitted_by=7) isn't already in the admin/publisher-role query result
-    # in this fixture, so it must be added explicitly.
-    assert {"id": 3, "phone_number": "+1admin", "is_admin": True} in curators
-    assert {"id": 7, "phone_number": "+1pub"} in curators
-    assert "abc" in message
+    assert "abc" in notified[0]
 
 
 def test_sweep_lock_timeouts_no_expired_locks_sends_nothing(monkeypatch):
     monkeypatch.setattr(db, "release_expired_locks", lambda conn, ttl_seconds: [])
     notified = []
 
-    async def fake_notify(curators, message):
-        notified.append(1)
+    async def fake_send(message):
+        notified.append(message)
 
-    monkeypatch.setattr(sweep.whatsapp_notify, "notify_curators", fake_notify)
+    monkeypatch.setattr(sweep.whatsapp_notify, "send_whatsapp_link", fake_send)
 
     released = sweep.sweep_lock_timeouts(_FakeConn(), lock_ttl_seconds=3600)
 
@@ -66,39 +61,34 @@ def test_sweep_lock_timeouts_no_expired_locks_sends_nothing(monkeypatch):
     assert notified == []
 
 
-def test_sweep_lock_timeouts_publisher_already_in_role_pool_not_duplicated(monkeypatch):
-    released_rows = [{"id": 1, "slug": "abc", "submitted_by": 7}]
-    pool = [{"id": 7, "phone_number": "+1pub", "is_publisher": True}]
+def test_sweep_lock_timeouts_sends_one_group_message_per_release(monkeypatch):
+    released_rows = [{"id": 1, "slug": "abc", "submitted_by": 7}, {"id": 2, "slug": "def", "submitted_by": 8}]
     monkeypatch.setattr(db, "release_expired_locks", lambda conn, ttl_seconds: released_rows)
-    monkeypatch.setattr(db, "list_curators_by_role", lambda conn, **kw: pool)
-    get_curator_calls = []
-    monkeypatch.setattr(db, "get_curator", lambda conn, cid: get_curator_calls.append(cid))
     notified = []
 
-    async def fake_notify(curators, message):
-        notified.append(list(curators))
+    async def fake_send(message):
+        notified.append(message)
 
-    monkeypatch.setattr(sweep.whatsapp_notify, "notify_curators", fake_notify)
+    monkeypatch.setattr(sweep.whatsapp_notify, "send_whatsapp_link", fake_send)
 
     sweep.sweep_lock_timeouts(_FakeConn(), lock_ttl_seconds=3600)
 
-    assert get_curator_calls == []  # publisher already present in the role-flag query result
-    assert notified == [pool]
+    assert len(notified) == 2
+    assert "abc" in notified[0]
+    assert "def" in notified[1]
 
 
-def test_sweep_pending_reminders_notifies_reviewer_pool_and_stamps(monkeypatch):
+def test_sweep_pending_reminders_notifies_the_group_and_stamps(monkeypatch):
     due_rows = [{"id": 10, "slug": "xyz"}, {"id": 11, "slug": "qrs"}]
-    reviewer_pool = [{"id": 4, "phone_number": "+1rev"}]
     monkeypatch.setattr(db, "find_due_reminders", lambda conn, interval_seconds: due_rows)
-    monkeypatch.setattr(db, "list_curators_by_role", lambda conn, **kw: reviewer_pool)
     stamped = []
     monkeypatch.setattr(db, "stamp_reminder_sent", lambda conn, sid: stamped.append(sid))
     notified = []
 
-    async def fake_notify(curators, message):
+    async def fake_send(message):
         notified.append(message)
 
-    monkeypatch.setattr(sweep.whatsapp_notify, "notify_curators", fake_notify)
+    monkeypatch.setattr(sweep.whatsapp_notify, "send_whatsapp_link", fake_send)
 
     due = sweep.sweep_pending_reminders(_FakeConn(), reminder_interval_seconds=7200)
 
@@ -110,7 +100,6 @@ def test_sweep_pending_reminders_notifies_reviewer_pool_and_stamps(monkeypatch):
 
 def test_sweep_pending_reminders_none_due_stamps_nothing(monkeypatch):
     monkeypatch.setattr(db, "find_due_reminders", lambda conn, interval_seconds: [])
-    monkeypatch.setattr(db, "list_curators_by_role", lambda conn, **kw: [])
     stamped = []
     monkeypatch.setattr(db, "stamp_reminder_sent", lambda conn, sid: stamped.append(sid))
 

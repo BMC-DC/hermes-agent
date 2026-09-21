@@ -150,32 +150,30 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
 
         ``submitterName``/``submitterPhone`` are read from the intake payload if present
         (the "required name + WhatsApp number" field the plan doc describes adding to the
-        shared intake form) but social-post-portal does not send them yet as of this
-        build — this degrades to an "unidentified submitter" message rather than failing,
-        and starts including the real name/number automatically once the portal-side form
-        field ships, with no Hermes-side change needed.
+        shared intake form) — this degrades to an "unidentified submitter" message rather
+        than failing if they're absent.
+
+        Decided 2026-09-21: this always sends to the shared social-media WhatsApp group
+        (never an individual curator's DM) — the team wants shared visibility into all
+        activity, not fragmented per-person messages. The Postgres upsert below is
+        unrelated bookkeeping for the "Social Media Curator" ledger (so Vidu can later
+        answer "what happened to X's post"), not a step in choosing who gets notified.
         """
-        if not self._db_url:
-            return
         submitter_name = str(payload.get("submitterName") or "").strip()
         submitter_phone = str(payload.get("submitterPhone") or "").strip()
-        try:
-            curators = await asyncio.to_thread(self._resolve_review_pool, submitter_phone, submitter_name)
-        except db.DatabaseError as exc:
-            logger.error("[event_post_pipeline] could not resolve curators for submission notify: %s", exc)
-            return
+        if self._db_url and submitter_phone:
+            try:
+                await asyncio.to_thread(self._upsert_submitter_curator, submitter_phone, submitter_name)
+            except db.DatabaseError as exc:
+                logger.error("[event_post_pipeline] could not upsert submitter curator: %s", exc)
         who = f"{submitter_name} ({submitter_phone})" if (submitter_name or submitter_phone) else "an unidentified submitter"
         message = f"New event post submission from {who} — drafting has started (task {task_id})."
-        await whatsapp_notify.notify_curators(curators, message)
+        await whatsapp_notify.send_whatsapp_link(message)
 
-    def _resolve_review_pool(self, submitter_phone: str, submitter_name: str) -> list:
-        """Upserts the submitter (if a phone was provided) as a publisher, then returns
-        the reviewer+admin pool who should hear about the new submission."""
+    def _upsert_submitter_curator(self, submitter_phone: str, submitter_name: str) -> None:
         conn = db.get_connection(self._db_url)
         try:
-            if submitter_phone:
-                db.upsert_curator(conn, submitter_phone, submitter_name or submitter_phone, is_publisher=True)
-            return db.list_curators_by_role(conn, is_reviewer=True, is_admin=True)
+            db.upsert_curator(conn, submitter_phone, submitter_name or submitter_phone, is_publisher=True)
         finally:
             conn.close()
 
@@ -207,25 +205,28 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
 
     async def _notify_review_action(self, action: models.ReviewActionPayload, result: dict) -> None:
         """Lifecycle event "review action taken" (plan doc's lifecycle table): notifies
-        the original submitter that their draft was approved/rejected/sent back for a
-        refine. Silently a no-op when Postgres isn't configured, or when this submission
-        has no matching ``post_submissions`` row yet (e.g. it predates the v2 cutover) —
-        never fails the review action itself over a notification problem."""
-        if not self._db_url:
-            return
-        try:
-            _submission, curator = await asyncio.to_thread(self._resolve_submitter, action.task_id)
-        except db.DatabaseError as exc:
-            logger.error("[event_post_pipeline] could not resolve submitter for review-action notify: %s", exc)
-            return
-        if curator is None:
-            return
+        the shared social-media WhatsApp group that a draft was approved/rejected/sent
+        back for a refine (decided 2026-09-21: every pipeline notification goes to the
+        group, never an individual curator's DM — the original submitter's name is
+        included in the message text instead, since "your draft was approved" only makes
+        sense addressed to one person). Silently degrades to "the submitter" when
+        Postgres isn't configured, or the submission predates the v2 cutover (no
+        ``post_submissions`` row / no ``submitted_by``) — never fails the review action
+        itself over a notification problem."""
+        submitter_name = "the submitter"
+        if self._db_url:
+            try:
+                _submission, curator = await asyncio.to_thread(self._resolve_submitter, action.task_id)
+                if curator:
+                    submitter_name = curator.get("name") or submitter_name
+            except db.DatabaseError as exc:
+                logger.error("[event_post_pipeline] could not resolve submitter for review-action notify: %s", exc)
         verb = {"approved": "approved", "rejected": "rejected", "refine": "sent back for a refine"}.get(action.action, action.action)
-        message = f"Your {action.platform.upper()} draft was {verb} on review."
+        message = f"{submitter_name}'s {action.platform.upper()} draft was {verb} on review."
         if action.comment:
             message += f" Reviewer note: {action.comment}"
         try:
-            await whatsapp_notify.send_whatsapp_to_curator(curator, message)
+            await whatsapp_notify.send_whatsapp_link(message)
         except whatsapp_notify.WhatsAppNotifyError as exc:
             logger.error("[event_post_pipeline] review-action notify send failed: %s", exc)
 

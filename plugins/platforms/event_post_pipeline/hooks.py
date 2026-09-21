@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from plugins.platforms.event_post_pipeline import db, pipeline, security, whatsapp_notify
+from plugins.platforms.event_post_pipeline import pipeline, security, whatsapp_notify
 from plugins.platforms.event_post_pipeline.review_client import ReviewClientConfig
 from plugins.platforms.event_post_pipeline.store import EventPostPipelineStore, resolve_store_path
 
@@ -70,22 +70,15 @@ def on_kanban_task_completed(*, task_id: str, **_kwargs: Any) -> None:
     # INFO level. A notification failure here must never look like silence;
     # log it ourselves at ERROR before it disappears upstream.
     try:
-        db_url = db.resolve_database_url(extra)
-        curators = _reviewer_pool(db_url) if db_url else []
-        if curators:
-            # v2 path: curator-resolved recipients, never config.yaml's hardcoded
-            # chat_id (plan doc's explicit requirement) — "Stylus finished" and
-            # "review link ready" are deliberately sent as a single message here
-            # for the same reason ``adapter.py``'s intake notification merges its
-            # own pair: both fire from this one hook callback at the exact same
-            # instant with overlapping information.
-            _run_async(lambda: whatsapp_notify.notify_curators(curators, message))
-        else:
-            # No Postgres configured for this profile, or no reviewer curators
-            # registered yet (e.g. before anyone has ever claimed a review) —
-            # fall back to v1's single hardcoded home-channel recipient rather
-            # than silently sending nothing.
-            _run_async(lambda: whatsapp_notify.send_whatsapp_link(message))
+        # Decided 2026-09-21: every pipeline notification goes to the shared
+        # social-media WhatsApp group, never an individual curator's DM — the
+        # team wants shared visibility into all activity, not fragmented
+        # per-person messages. "Stylus finished" and "review link ready" are
+        # deliberately sent as a single message here for the same reason
+        # ``adapter.py``'s intake notification merges its own pair: both fire
+        # from this one hook callback at the exact same instant with
+        # overlapping information.
+        _run_async(lambda: whatsapp_notify.send_whatsapp_link(message))
     except Exception:
         logger.exception(
             "[event_post_pipeline] notification failed for task=%s (result=%s) — "
@@ -119,21 +112,6 @@ def _run_async(coro_factory) -> None:
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         pool.submit(asyncio.run, coro_factory()).result()
-
-
-def _reviewer_pool(db_url: str) -> list:
-    try:
-        conn = db.get_connection(db_url)
-    except db.DatabaseError as exc:
-        logger.error("[event_post_pipeline] could not connect to Postgres for reviewer-pool lookup: %s", exc)
-        return []
-    try:
-        return db.list_curators_by_role(conn, is_reviewer=True)
-    except Exception:
-        logger.exception("[event_post_pipeline] reviewer-pool lookup failed")
-        return []
-    finally:
-        conn.close()
 
 
 def _notification_message(result: dict) -> Optional[str]:
