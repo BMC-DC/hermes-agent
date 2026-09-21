@@ -57,7 +57,7 @@ def _load_extra() -> dict:
     return dict((platforms.get("event_post_pipeline") or {}).get("extra") or {})
 
 
-DEFAULT_REVIEW_BASE_URL = "https://bmcposts.vercel.app"
+DEFAULT_REVIEW_BASE_URL = "https://spp.buddhameditationdc.org"
 
 
 def _review_link(submission: dict, review_base_url: str) -> str:

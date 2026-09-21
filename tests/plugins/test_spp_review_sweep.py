@@ -122,13 +122,13 @@ def test_reminder_message_uses_the_real_review_link_not_the_bare_slug():
     """Regression test (2026-09-21): the reminder used to say "the review for 'abc'
     (submission #1)" -- a bare slug, not a clickable link. Fixed to build the actual
     /review/<slug> URL."""
-    message = sweep._reminder_message({"id": 1, "slug": "abc123"}, "https://bmcposts.vercel.app")
-    assert message == "Reminder: the review for https://bmcposts.vercel.app/review/abc123 is still waiting."
+    message = sweep._reminder_message({"id": 1, "slug": "abc123"}, "https://spp.buddhameditationdc.org")
+    assert message == "Reminder: the review for https://spp.buddhameditationdc.org/review/abc123 is still waiting."
 
 
 def test_lock_timeout_message_uses_the_real_review_link():
-    message = sweep._lock_timeout_message({"id": 1, "slug": "abc123"}, "https://bmcposts.vercel.app")
-    assert "https://bmcposts.vercel.app/review/abc123" in message
+    message = sweep._lock_timeout_message({"id": 1, "slug": "abc123"}, "https://spp.buddhameditationdc.org")
+    assert "https://spp.buddhameditationdc.org/review/abc123" in message
 
 
 def test_sweep_pending_reminders_passes_review_base_url_through(monkeypatch):

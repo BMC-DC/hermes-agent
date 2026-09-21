@@ -133,7 +133,7 @@ def test_on_kanban_task_blocked_alerts_the_group_with_a_visualizer_link(monkeypa
     mode that needs its own alert, decided 2026-09-21 after live testing found it
     otherwise sat silently stuck with no signal to anyone."""
     sent = []
-    monkeypatch.setattr(hooks, "_load_pipeline_extra", lambda: {"board": None, "review_base_url": "https://bmcposts.vercel.app"})
+    monkeypatch.setattr(hooks, "_load_pipeline_extra", lambda: {"board": None, "review_base_url": "https://spp.buddhameditationdc.org"})
     monkeypatch.setattr(hooks.db, "resolve_database_url", lambda extra: "postgresql://x/y")
     monkeypatch.setattr(kbc, "connect", _fake_connect)
     monkeypatch.setattr(
@@ -151,7 +151,7 @@ def test_on_kanban_task_blocked_alerts_the_group_with_a_visualizer_link(monkeypa
 
     assert len(sent) == 1
     assert "root-1" in sent[0]
-    assert "https://bmcposts.vercel.app/visualizer?taskId=root-1" in sent[0]
+    assert "https://spp.buddhameditationdc.org/visualizer?taskId=root-1" in sent[0]
     assert "LLM call failed" in sent[0]
     assert "Draft social copy: X" in sent[0]
 

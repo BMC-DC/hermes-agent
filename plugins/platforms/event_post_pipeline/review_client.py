@@ -22,7 +22,7 @@ class ReviewClientError(RuntimeError):
 
 @dataclass(frozen=True)
 class ReviewClientConfig:
-    base_url: str  # e.g. "https://bmcposts.vercel.app"
+    base_url: str  # e.g. "https://spp.buddhameditationdc.org"
     create_secret: str  # EVENT_REVIEW_CREATE_SECRET, shared with the portal
 
 

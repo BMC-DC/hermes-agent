@@ -37,7 +37,7 @@ def on_kanban_task_completed(*, task_id: str, **_kwargs: Any) -> None:
     board: Optional[str] = extra.get("board")
     db_url = db.resolve_database_url(extra)
     review_config = ReviewClientConfig(
-        base_url=str(extra.get("review_base_url", "https://bmcposts.vercel.app")).rstrip("/"),
+        base_url=str(extra.get("review_base_url", "https://spp.buddhameditationdc.org")).rstrip("/"),
         create_secret=security.resolve_review_create_secret(extra),
     )
     store = EventPostPipelineStore(resolve_store_path(extra.get("store_path")))
@@ -132,7 +132,7 @@ def on_kanban_task_blocked(*, task_id: str, assignee: Optional[str] = None, reas
     # yet — this is the one failure mode with no existing alert at all. Tell the group,
     # with a direct link to the visualizer so someone can open it and hit Retry.
     try:
-        review_base_url = str(extra.get("review_base_url", "https://bmcposts.vercel.app")).rstrip("/")
+        review_base_url = str(extra.get("review_base_url", "https://spp.buddhameditationdc.org")).rstrip("/")
         link = f"{review_base_url}/visualizer?taskId={root_task_id}"
         alert = f"⚠️ Stylus got stuck on \"{task.title}\": {reason or 'no reason given'}. Continue here: {link}"
         _run_async(lambda: whatsapp_notify.send_whatsapp_link(alert))
