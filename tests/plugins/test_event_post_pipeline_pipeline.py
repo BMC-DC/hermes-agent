@@ -183,6 +183,38 @@ def test_refine_dispatches_new_scoped_task_and_completion_updates_page(conn, ops
     assert updates[0]["slug"] == "xyz"
 
 
+def test_refine_completion_succeeds_with_only_the_refined_platform_in_metadata(conn, ops, store, review_config, monkeypatch):
+    """Regression test for a real production bug (2026-09-21): every fb/ig refine round
+    has always failed here, because a refine task's own body explicitly instructs Stylus
+    to omit every platform except the one being redrafted ("Only the IG content needs to
+    be redrafted — the other platforms are unaffected"), which Stylus correctly does —
+    but completion validation unconditionally demanded a well-formed 'blog' object
+    regardless. The one prior refine test happened to spread the full first-round
+    STYLUS_METADATA (blog included) into its refined payload, which is not what Stylus
+    actually returns and is exactly why this shipped undetected."""
+    root_id = pipeline.handle_intake(conn, ops, store, submission_id="ref-2", event_pack={**EVENT_PACK, "submissionId": "ref-2"})
+    _complete_as_stylus(conn, root_id, STYLUS_METADATA)
+    monkeypatch.setattr(pipeline, "create_review", lambda config, **kw: "https://bmcposts.example/review/ig-only")
+    pipeline.handle_stylus_completion(conn, ops, store, review_config, root_id)
+
+    refine_result = pipeline.handle_review_action(
+        conn, ops, store, task_id=root_id, platform="ig", action="refine", comment="Make it two lines.",
+    )
+    new_task_id = refine_result["task_id"]
+
+    # The real shape Stylus returns for a single-platform refine — no 'blog' key at all.
+    ig_only_metadata = {"event_title": "Day-Long Meditation Retreat", "ig": "Two lines, exactly as asked."}
+    _complete_as_stylus(conn, new_task_id, ig_only_metadata)
+
+    updates = []
+    monkeypatch.setattr(pipeline, "update_review", lambda config, **kw: updates.append(kw))
+    result = pipeline.handle_stylus_completion(conn, ops, store, review_config, new_task_id)
+
+    assert result["action"] == "updated_review_page"
+    assert result["platform"] == "ig"
+    assert updates[0]["text"] == "Two lines, exactly as asked."
+
+
 class _FakeVisualizerCursor:
     def __init__(self, conn):
         self._conn = conn

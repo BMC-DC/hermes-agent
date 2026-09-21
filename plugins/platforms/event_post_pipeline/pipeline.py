@@ -293,15 +293,29 @@ def _record_for_task(conn, ops: KanbanOps, store: EventPostPipelineStore, task) 
     return None
 
 
-def _extract_stylus_metadata(run) -> dict[str, Any]:
+def _extract_stylus_metadata(run, *, platform: Optional[str] = None) -> dict[str, Any]:
+    """``platform`` is the single platform a refine round asked Stylus to redraft (its
+    task body explicitly says "Only the {PLATFORM} content needs to be redrafted — the
+    other platforms are unaffected", so Stylus correctly omits them). ``None`` means a
+    first-round completion, which needs all three.
+
+    Found the hard way (2026-09-21, live production): this validation used to
+    unconditionally require a well-formed 'blog' object plus non-empty 'fb'/'ig'
+    strings regardless of which platform a refine round actually asked for — so
+    every fb/ig refine round has always failed here with "Stylus completion metadata
+    missing a well-formed 'blog' object", before ever reaching the platform-specific
+    logic below that already correctly only needs the one refined field. Only blog
+    refines happened to pass, by coincidence of blog being the first key checked."""
     if run is None or run.outcome != "completed" or not isinstance(run.metadata, dict):
         raise PipelineError(f"Stylus run for is missing or did not complete cleanly (outcome={getattr(run, 'outcome', None)!r})")
     metadata = run.metadata
-    blog = metadata.get("blog")
-    if not isinstance(blog, dict) or not blog.get("body"):
-        raise PipelineError(f"Stylus completion metadata missing a well-formed 'blog' object: {metadata!r}")
-    for key in ("fb", "ig"):
-        if not isinstance(metadata.get(key), str) or not metadata[key].strip():
+    required = (platform,) if platform else ("blog", "fb", "ig")
+    for key in required:
+        if key == "blog":
+            blog = metadata.get("blog")
+            if not isinstance(blog, dict) or not blog.get("body"):
+                raise PipelineError(f"Stylus completion metadata missing a well-formed 'blog' object: {metadata!r}")
+        elif not isinstance(metadata.get(key), str) or not metadata[key].strip():
             raise PipelineError(f"Stylus completion metadata missing required string field {key!r}: {metadata!r}")
     return metadata
 
@@ -329,11 +343,12 @@ def handle_stylus_completion(
     if task is None or task.tenant != TENANT or task.assignee != "stylus":
         return None  # not ours
     run = ops.latest_run(conn, task_id)
-    metadata = _extract_stylus_metadata(run)
     refine = _REFINE_IDEMPOTENCY_RE.match(task.idempotency_key or "")
+    platform = refine.group("platform") if refine else None
+    metadata = _extract_stylus_metadata(run, platform=platform)
     if refine:
         return _handle_refine_round_completion(
-            conn, ops, store, review_config, task, metadata, refine.group("platform"), database_url,
+            conn, ops, store, review_config, task, metadata, platform, database_url,
         )
     return _handle_first_round_completion(conn, ops, store, review_config, task, metadata, database_url)
 
