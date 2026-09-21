@@ -6,9 +6,14 @@ zero-extra-LLM-cost philosophy).
 
 Two tools, one toolset (``event_post_pipeline``):
 
-- ``social_post_status`` — read-only. Recent pipeline runs (state, current step,
-  review link) from the same ``pipeline_runs`` table the portal-side visualizer
-  already reads. Answers "what's the status", "show me past posts".
+- ``social_post_status`` — read-only. Without ``task_id``: recent pipeline runs
+  (state, current step, review link) from the same ``pipeline_runs`` table the
+  portal-side visualizer already reads — answers "what's the status", "show me
+  past posts". With ``task_id``: the full submitted pack for one submission
+  (description, quote, images, submitter, per-platform draft text + status) —
+  answers "what did the curator actually submit/write", pulled from
+  ``post_submissions``/``post_platform_drafts`` (portal-owned tables, read-only
+  here, same as every other read in this plugin).
 - ``social_post_retry`` — the chat equivalent of the review-page visualizer's own
   "Retry" button: unblocks a stuck Stylus drafting task, or resends a WhatsApp
   notification that failed to send. Never touches drafting/review content itself.
@@ -58,18 +63,26 @@ SOCIAL_POST_STATUS_SCHEMA = {
         "recent submissions, which step each is on (drafting / awaiting review / "
         "blocked), and the review-page link. Read-only. To start a new submission, "
         "tell the user to use the intake form — that's not something you can do from "
-        "chat. Optionally filter by a keyword from the event title."
+        "chat. Optionally filter by a keyword from the event title, or pass task_id "
+        "(from a prior call's output) to see the full submitted pack for one "
+        "submission — what the curator actually wrote/attached (description, quote, "
+        "photos, who submitted it) plus each platform's current draft text and "
+        "review status."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "Optional keyword to filter by (matched against the event title). Omit to list the most recent activity.",
+                "description": "Optional keyword to filter by (matched against the event title). Omit to list the most recent activity. Ignored when task_id is given.",
             },
             "limit": {
                 "type": "integer",
-                "description": "Max number of runs to return (default 10, max 25).",
+                "description": "Max number of runs to return (default 10, max 25). Ignored when task_id is given.",
+            },
+            "task_id": {
+                "type": "string",
+                "description": "Look up one specific submission's full pack + drafts instead of the recent-activity list. Get this from a prior social_post_status call's output.",
             },
         },
         "required": [],
@@ -111,6 +124,39 @@ def _status_row(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _draft_row(draft: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "platform": draft.get("platform"),
+        "round": draft.get("round"),
+        "status": draft.get("status"),
+        "text": draft.get("text"),
+        "comment": draft.get("comment"),
+    }
+
+
+def _submission_pack(conn, task_id: str) -> "dict[str, Any] | None":
+    """The full submitted pack + current drafts for one submission — what the
+    curator actually wrote/attached, not just pipeline-run tracking state.
+    ``None`` when the pipeline_runs row hasn't been linked to a portal-side
+    post_submissions row yet (e.g. Stylus hasn't finished the first draft)."""
+    submission = db.get_submission_by_task_id(conn, task_id)
+    if submission is None:
+        return None
+    submitter = db.get_curator(conn, submission["submitted_by"]) if submission.get("submitted_by") else None
+    drafts = db.list_drafts(conn, submission["id"])
+    return {
+        "task_id": task_id,
+        "event_title": submission.get("event_title"),
+        "date": submission.get("event_date"),
+        "description": submission.get("description"),
+        "quote": submission.get("quote"),
+        "images": submission.get("images") or [],
+        "submitted_by": (submitter or {}).get("name"),
+        "status": submission.get("status"),
+        "drafts": [_draft_row(d) for d in drafts],
+    }
+
+
 def social_post_status_handler(args: dict, **_kwargs: Any) -> str:
     extra = _load_pipeline_extra()
     if not extra:
@@ -121,15 +167,32 @@ def social_post_status_handler(args: dict, **_kwargs: Any) -> str:
             "no SPP_DATABASE_URL configured for this profile — pipeline status tracking isn't wired up, "
             "so past-run history isn't available here"
         )
+    try:
+        conn = db.get_connection(db_url)
+    except db.DatabaseError as exc:
+        return tool_error(f"could not reach the pipeline status database: {exc}")
+
+    task_id = str(args.get("task_id") or "").strip()
+    if task_id:
+        try:
+            pack = _submission_pack(conn, task_id)
+        except Exception as exc:
+            logger.exception("event_post_pipeline: social_post_status pack lookup failed for task=%s", task_id)
+            return tool_error(f"pack lookup failed: {exc}")
+        finally:
+            conn.close()
+        if pack is None:
+            return tool_error(
+                f"no submitted pack found for task_id={task_id!r} — either the id is wrong, or Stylus "
+                "hasn't finished the first draft yet (the pack isn't linked until then)"
+            )
+        return tool_result(**pack)
+
     query = str(args.get("query") or "").strip() or None
     try:
         limit = max(1, min(int(args.get("limit") or 10), 25))
     except (TypeError, ValueError):
         limit = 10
-    try:
-        conn = db.get_connection(db_url)
-    except db.DatabaseError as exc:
-        return tool_error(f"could not reach the pipeline status database: {exc}")
     try:
         runs = db.list_recent_pipeline_runs(conn, limit=limit, query=query)
     except Exception as exc:

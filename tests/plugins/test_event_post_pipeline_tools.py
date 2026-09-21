@@ -113,6 +113,68 @@ def test_status_handler_connection_failure_returns_tool_error(monkeypatch):
     assert "error" in out
 
 
+# --- social_post_status_handler(task_id=...): the submitted pack ------------------------
+
+
+def test_status_handler_task_id_returns_full_pack_with_submitter_and_drafts(monkeypatch):
+    monkeypatch.setattr(tools, "_load_pipeline_extra", lambda: {"port": 8645})
+    monkeypatch.setattr(db, "resolve_database_url", lambda extra=None: "postgresql://x/db")
+    submission = {
+        "id": 7, "task_id": "t1", "event_title": "Retreat Day", "event_date": "2026-09-27",
+        "description": "A day-long retreat.", "quote": "Be present.", "images": ["https://x/1.jpg"],
+        "submitted_by": 3, "status": "pending",
+    }
+    curator = {"id": 3, "name": "Amila"}
+    drafts = [
+        {"platform": "fb", "round": 1, "status": "approved", "text": "FB copy", "comment": None},
+        {"platform": "ig", "round": 1, "status": "pending", "text": "IG copy", "comment": None},
+    ]
+    fake_conn = _FakeConnection([{"one": submission}, {"one": curator}, {"all": drafts}])
+    monkeypatch.setattr(db, "get_connection", lambda url: fake_conn)
+
+    out = json.loads(tools.social_post_status_handler({"task_id": "t1"}))
+
+    assert out["task_id"] == "t1"
+    assert out["event_title"] == "Retreat Day"
+    assert out["description"] == "A day-long retreat."
+    assert out["images"] == ["https://x/1.jpg"]
+    assert out["submitted_by"] == "Amila"
+    assert len(out["drafts"]) == 2
+    assert out["drafts"][0]["platform"] == "fb"
+    assert out["drafts"][0]["text"] == "FB copy"
+
+
+def test_status_handler_task_id_no_submitter_skips_curator_lookup(monkeypatch):
+    monkeypatch.setattr(tools, "_load_pipeline_extra", lambda: {"port": 8645})
+    monkeypatch.setattr(db, "resolve_database_url", lambda extra=None: "postgresql://x/db")
+    submission = {
+        "id": 7, "task_id": "t1", "event_title": "Retreat Day", "event_date": None,
+        "description": "A day-long retreat.", "quote": None, "images": [],
+        "submitted_by": None, "status": "pending",
+    }
+    fake_conn = _FakeConnection([{"one": submission}, {"all": []}])
+    monkeypatch.setattr(db, "get_connection", lambda url: fake_conn)
+
+    out = json.loads(tools.social_post_status_handler({"task_id": "t1"}))
+
+    assert out["submitted_by"] is None
+    assert out["drafts"] == []
+    # Only 2 queries ran (submission + drafts) -- no curator lookup attempted.
+    assert len(fake_conn.executed) == 2
+
+
+def test_status_handler_task_id_not_found_returns_tool_error(monkeypatch):
+    monkeypatch.setattr(tools, "_load_pipeline_extra", lambda: {"port": 8645})
+    monkeypatch.setattr(db, "resolve_database_url", lambda extra=None: "postgresql://x/db")
+    fake_conn = _FakeConnection([{"one": None}])
+    monkeypatch.setattr(db, "get_connection", lambda url: fake_conn)
+
+    out = json.loads(tools.social_post_status_handler({"task_id": "no-such-task"}))
+
+    assert "error" in out
+    assert "no-such-task" in out["error"]
+
+
 # --- social_post_retry_handler ----------------------------------------------------------
 
 
