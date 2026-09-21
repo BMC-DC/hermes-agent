@@ -8,10 +8,12 @@ scheduler": every tick does two unrelated checks against Postgres —
   (a) release any ``post_submissions`` review-claim lock older than
       ``--lock-ttl-seconds`` (default 1 hour) and notify the submission's
       publisher + every admin curator that it was released;
-  (b) find every ``pending`` submission whose 2-hour reminder is due
-      (``last_reminder_at`` is null, or older than ``--reminder-interval-
-      seconds``, default 2 hours) and send the "review is waiting" nudge to
-      the current reviewer pool, then stamp ``last_reminder_at``.
+  (b) find every submission that still has a non-terminal platform draft
+      (i.e. genuinely still needs review — not fully approved/rejected)
+      whose 2-hour reminder is due (``last_reminder_at`` is null, or older
+      than ``--reminder-interval-seconds``, default 2 hours) and send the
+      "review is waiting" nudge with the actual review link to the shared
+      group, then stamp ``last_reminder_at``.
 
 This is a plain, deterministic script — **no LLM call, no agent turn** — the
 "no_agent script job type" this plan doc's §6 points at
@@ -55,46 +57,55 @@ def _load_extra() -> dict:
     return dict((platforms.get("event_post_pipeline") or {}).get("extra") or {})
 
 
-def _lock_timeout_message(submission: dict) -> str:
-    slug = submission.get("slug", "?")
+DEFAULT_REVIEW_BASE_URL = "https://bmcposts.vercel.app"
+
+
+def _review_link(submission: dict, review_base_url: str) -> str:
+    slug = submission.get("slug", "")
+    return f"{review_base_url.rstrip('/')}/review/{slug}"
+
+
+def _lock_timeout_message(submission: dict, review_base_url: str) -> str:
     return (
-        f"Review claim on '{slug}' (submission #{submission.get('id')}) was released after "
+        f"Review claim on {_review_link(submission, review_base_url)} was released after "
         f"sitting locked for over an hour with no action taken. It's open for review again."
     )
 
 
-def _reminder_message(submission: dict) -> str:
-    slug = submission.get("slug", "?")
-    return f"Reminder: the review for '{slug}' (submission #{submission.get('id')}) is still waiting."
+def _reminder_message(submission: dict, review_base_url: str) -> str:
+    return f"Reminder: the review for {_review_link(submission, review_base_url)} is still waiting."
 
 
-def sweep_lock_timeouts(conn, *, lock_ttl_seconds: int) -> list[dict[str, Any]]:
+def sweep_lock_timeouts(conn, *, lock_ttl_seconds: int, review_base_url: str = DEFAULT_REVIEW_BASE_URL) -> list[dict[str, Any]]:
     """Releases every expired lock and notifies the shared social-media group for each
     (decided 2026-09-21: every pipeline notification goes to the group, not an individual
     curator's DM — the team wants shared visibility into all activity, not fragmented
     per-person messages). Returns the released rows (for the caller's summary/tests)."""
     released = db.release_expired_locks(conn, ttl_seconds=lock_ttl_seconds)
     for submission in released:
-        asyncio.run(whatsapp_notify.send_whatsapp_link(_lock_timeout_message(submission)))
+        asyncio.run(whatsapp_notify.send_whatsapp_link(_lock_timeout_message(submission, review_base_url)))
     return released
 
 
-def sweep_pending_reminders(conn, *, reminder_interval_seconds: int) -> list[dict[str, Any]]:
+def sweep_pending_reminders(conn, *, reminder_interval_seconds: int, review_base_url: str = DEFAULT_REVIEW_BASE_URL) -> list[dict[str, Any]]:
     """Sends the "review is waiting" nudge to the shared group for every submission whose
     reminder is due, then stamps ``last_reminder_at`` — only after a successful send attempt
     (a delivery *failure* still stamps, matching a cron script's "best effort, don't jam the
-    queue on one bad number" expectations)."""
+    queue on one bad number" expectations). ``db.find_due_reminders`` already restricts this
+    to submissions that genuinely still have a non-terminal platform draft — see its
+    docstring for the 2026-09-21 bug this fixes (it used to fire for every submission ever
+    created, including fully approved ones, months old)."""
     due = db.find_due_reminders(conn, interval_seconds=reminder_interval_seconds)
     for submission in due:
-        asyncio.run(whatsapp_notify.send_whatsapp_link(_reminder_message(submission)))
+        asyncio.run(whatsapp_notify.send_whatsapp_link(_reminder_message(submission, review_base_url)))
         db.stamp_reminder_sent(conn, submission["id"])
     return due
 
 
-def run_sweep(conn, *, lock_ttl_seconds: int, reminder_interval_seconds: int) -> dict[str, int]:
+def run_sweep(conn, *, lock_ttl_seconds: int, reminder_interval_seconds: int, review_base_url: str = DEFAULT_REVIEW_BASE_URL) -> dict[str, int]:
     """Both independent checks, one tick. Returns a small summary dict for logging/tests."""
-    released = sweep_lock_timeouts(conn, lock_ttl_seconds=lock_ttl_seconds)
-    reminded = sweep_pending_reminders(conn, reminder_interval_seconds=reminder_interval_seconds)
+    released = sweep_lock_timeouts(conn, lock_ttl_seconds=lock_ttl_seconds, review_base_url=review_base_url)
+    reminded = sweep_pending_reminders(conn, reminder_interval_seconds=reminder_interval_seconds, review_base_url=review_base_url)
     return {"locks_released": len(released), "reminders_sent": len(reminded)}
 
 
@@ -115,8 +126,12 @@ def main(argv: list[str] | None = None) -> int:
     except db.DatabaseError as exc:
         print(f"spp_review_sweep: could not connect to Postgres: {exc}", file=sys.stderr)
         return 1
+    review_base_url = str(extra.get("review_base_url") or DEFAULT_REVIEW_BASE_URL)
     try:
-        summary = run_sweep(conn, lock_ttl_seconds=args.lock_ttl_seconds, reminder_interval_seconds=args.reminder_interval_seconds)
+        summary = run_sweep(
+            conn, lock_ttl_seconds=args.lock_ttl_seconds, reminder_interval_seconds=args.reminder_interval_seconds,
+            review_base_url=review_base_url,
+        )
     finally:
         conn.close()
     print(f"spp_review_sweep: released {summary['locks_released']} expired lock(s), "

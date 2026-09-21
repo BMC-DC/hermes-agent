@@ -176,11 +176,18 @@ def test_release_expired_locks_returns_affected_rows():
 
 
 def test_find_due_reminders_query_shape():
-    conn = _FakeConnection([{"all": [{"id": 1, "status": "pending"}]}])
+    """Regression test (2026-09-21): this used to filter on
+    post_submissions.status = 'pending', a column nothing in this codebase ever updates
+    after row creation -- it matched every submission ever created, including fully
+    approved ones, forever. Now checks post_platform_drafts directly for any
+    non-terminal latest-round draft. See db.py's find_due_reminders docstring."""
+    conn = _FakeConnection([{"all": [{"id": 1, "slug": "abc"}]}])
     due = db.find_due_reminders(conn, interval_seconds=7200)
     assert len(due) == 1
     sql, params = conn.executed[0]
-    assert "status = 'pending'" in sql
+    assert "post_platform_drafts" in sql
+    assert "'pending', 'refine_requested'" in sql
+    assert "status = 'pending'" not in sql  # the old, buggy submission-level filter
     assert "last_reminder_at" in sql
     assert params == ("7200 seconds",)
 

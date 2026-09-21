@@ -250,14 +250,37 @@ def release_expired_locks(conn, ttl_seconds: int = DEFAULT_LOCK_TTL_SECONDS) -> 
 
 
 def find_due_reminders(conn, interval_seconds: int = DEFAULT_REMINDER_INTERVAL_SECONDS) -> list[dict[str, Any]]:
-    """``pending`` submissions whose reminder is due: never reminded, or last reminded
-    more than ``interval_seconds`` ago. Does not stamp — the sweep script calls
-    ``stamp_reminder_sent`` itself only after the WhatsApp send actually succeeds, so a
-    delivery failure doesn't silently suppress the next tick's retry."""
+    """Submissions that still genuinely need a reviewer's attention, whose reminder is
+    due: never reminded, or last reminded more than ``interval_seconds`` ago.
+
+    Found the hard way (2026-09-21, live production): this used to filter on
+    ``post_submissions.status = 'pending'`` — but nothing anywhere in this codebase
+    ever updates that column after the row is created (portal-side completion tracking
+    lives entirely in ``post_platform_drafts.status`` per platform, never mirrored back
+    onto the submission row). It was permanently 'pending' forever, so this matched
+    *every* submission ever created regardless of actual completion — reminders kept
+    firing for fully approved, months-old posts. Fixed to check per-platform draft
+    status directly: a submission is still "review-needed" if ANY platform's latest
+    round is 'pending' or 'refine_requested' (not yet a terminal approved/rejected).
+
+    Does not stamp — the sweep script calls ``stamp_reminder_sent`` itself only after
+    the WhatsApp send actually succeeds, so a delivery failure doesn't silently
+    suppress the next tick's retry."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT * FROM post_submissions WHERE status = 'pending' "
-            "AND (last_reminder_at IS NULL OR last_reminder_at < now() - %s::interval)",
+            """
+            SELECT s.* FROM post_submissions s
+            WHERE EXISTS (
+                SELECT 1 FROM post_platform_drafts d
+                WHERE d.submission_id = s.id
+                  AND d.status IN ('pending', 'refine_requested')
+                  AND d.round = (
+                      SELECT MAX(round) FROM post_platform_drafts
+                      WHERE submission_id = s.id AND platform = d.platform
+                  )
+            )
+            AND (s.last_reminder_at IS NULL OR s.last_reminder_at < now() - %s::interval)
+            """,
             (f"{int(interval_seconds)} seconds",),
         )
         return [dict(row) for row in cur.fetchall()]

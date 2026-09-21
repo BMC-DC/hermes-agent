@@ -110,9 +110,38 @@ def test_sweep_pending_reminders_none_due_stamps_nothing(monkeypatch):
 
 
 def test_run_sweep_summarizes_both_independent_checks(monkeypatch):
-    monkeypatch.setattr(sweep, "sweep_lock_timeouts", lambda conn, lock_ttl_seconds: [{"id": 1}, {"id": 2}])
-    monkeypatch.setattr(sweep, "sweep_pending_reminders", lambda conn, reminder_interval_seconds: [{"id": 3}])
+    monkeypatch.setattr(sweep, "sweep_lock_timeouts", lambda conn, lock_ttl_seconds, **kw: [{"id": 1}, {"id": 2}])
+    monkeypatch.setattr(sweep, "sweep_pending_reminders", lambda conn, reminder_interval_seconds, **kw: [{"id": 3}])
 
     summary = sweep.run_sweep(_FakeConn(), lock_ttl_seconds=3600, reminder_interval_seconds=7200)
 
     assert summary == {"locks_released": 2, "reminders_sent": 1}
+
+
+def test_reminder_message_uses_the_real_review_link_not_the_bare_slug():
+    """Regression test (2026-09-21): the reminder used to say "the review for 'abc'
+    (submission #1)" -- a bare slug, not a clickable link. Fixed to build the actual
+    /review/<slug> URL."""
+    message = sweep._reminder_message({"id": 1, "slug": "abc123"}, "https://bmcposts.vercel.app")
+    assert message == "Reminder: the review for https://bmcposts.vercel.app/review/abc123 is still waiting."
+
+
+def test_lock_timeout_message_uses_the_real_review_link():
+    message = sweep._lock_timeout_message({"id": 1, "slug": "abc123"}, "https://bmcposts.vercel.app")
+    assert "https://bmcposts.vercel.app/review/abc123" in message
+
+
+def test_sweep_pending_reminders_passes_review_base_url_through(monkeypatch):
+    due_rows = [{"id": 10, "slug": "xyz"}]
+    monkeypatch.setattr(db, "find_due_reminders", lambda conn, interval_seconds: due_rows)
+    monkeypatch.setattr(db, "stamp_reminder_sent", lambda conn, sid: None)
+    notified = []
+
+    async def fake_send(message):
+        notified.append(message)
+
+    monkeypatch.setattr(sweep.whatsapp_notify, "send_whatsapp_link", fake_send)
+
+    sweep.sweep_pending_reminders(_FakeConn(), reminder_interval_seconds=7200, review_base_url="https://example.test")
+
+    assert notified == ["Reminder: the review for https://example.test/review/xyz is still waiting."]
