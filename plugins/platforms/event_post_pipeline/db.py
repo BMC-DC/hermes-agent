@@ -353,3 +353,24 @@ def get_submission_id_by_slug(conn, slug: str) -> Optional[int]:
 def link_submission_id(conn, task_id: str, submission_id: int) -> None:
     with conn.cursor() as cur:
         cur.execute("UPDATE pipeline_runs SET submission_id = %s WHERE task_id = %s", (submission_id, task_id))
+
+
+def list_recent_pipeline_runs(conn, *, limit: int = 10, query: Optional[str] = None) -> list[dict[str, Any]]:
+    """Recent pipeline runs, newest-updated first — the read side of the ``tools.py``
+    ``social_post_status`` agent tool (Vidu's "what's the status / show me past posts"
+    query). Reuses the same ``pipeline_runs`` table the portal-side visualizer already
+    reads, rather than adding a second parallel read path onto ``post_submissions``.
+
+    ``query`` (optional) does a case-insensitive substring match against the run's
+    ``title`` — e.g. Vidu narrowing "the meditation retreat post" down from a full
+    recent-activity dump."""
+    sql = "SELECT * FROM pipeline_runs"
+    params: tuple = ()
+    if query:
+        sql += " WHERE title ILIKE %s"
+        params = (f"%{query}%",)
+    sql += " ORDER BY updated_at DESC LIMIT %s"
+    params = params + (int(limit),)
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        return [dict(row) for row in cur.fetchall()]

@@ -262,3 +262,22 @@ def test_link_submission_id_updates_pipeline_runs():
     assert "UPDATE pipeline_runs" in sql
     assert "submission_id" in sql
     assert params == (42, "task-1")
+
+
+def test_list_recent_pipeline_runs_default_orders_and_limits():
+    conn = _FakeConnection([{"all": [{"task_id": "t1"}, {"task_id": "t2"}]}])
+    runs = db.list_recent_pipeline_runs(conn)
+    assert len(runs) == 2
+    sql, params = conn.executed[0]
+    assert "ORDER BY updated_at DESC" in sql
+    assert "WHERE" not in sql
+    assert params == (10,)
+
+
+def test_list_recent_pipeline_runs_with_query_filters_by_title():
+    conn = _FakeConnection([{"all": [{"task_id": "t1", "title": "Retreat Day"}]}])
+    runs = db.list_recent_pipeline_runs(conn, limit=5, query="retreat")
+    assert len(runs) == 1
+    sql, params = conn.executed[0]
+    assert "title ILIKE" in sql
+    assert params == ("%retreat%", 5)

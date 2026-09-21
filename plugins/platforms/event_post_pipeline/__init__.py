@@ -20,6 +20,10 @@ from plugins.platforms.event_post_pipeline.adapter import (
     EventPostPipelineAdapter, check_event_post_pipeline_requirements, _build_adapter,
 )
 from plugins.platforms.event_post_pipeline.hooks import on_kanban_task_blocked, on_kanban_task_completed
+from plugins.platforms.event_post_pipeline.tools import (
+    SOCIAL_POST_STATUS_SCHEMA, SOCIAL_POST_SUBMIT_SCHEMA, check_pipeline_tools_available,
+    social_post_status_handler, social_post_submit_handler,
+)
 
 
 def register(ctx) -> None:
@@ -34,3 +38,15 @@ def register(ctx) -> None:
     )
     ctx.register_hook("kanban_task_completed", on_kanban_task_completed)
     ctx.register_hook("kanban_task_blocked", on_kanban_task_blocked)
+    # Agent-callable tools so Vidu (the general orchestrator) can query/trigger this
+    # pipeline directly — see tools.py's module docstring for the design rationale
+    # (plain register_tool, no extra delegate_task LLM hop; Stylus stays the only
+    # drafting step).
+    ctx.register_tool(
+        name="social_post_status", toolset="event_post_pipeline", schema=SOCIAL_POST_STATUS_SCHEMA,
+        handler=social_post_status_handler, check_fn=check_pipeline_tools_available, emoji="📋",
+    )
+    ctx.register_tool(
+        name="social_post_submit", toolset="event_post_pipeline", schema=SOCIAL_POST_SUBMIT_SCHEMA,
+        handler=social_post_submit_handler, check_fn=check_pipeline_tools_available, emoji="📮",
+    )

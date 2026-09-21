@@ -30,3 +30,9 @@ def test_register_adds_platform_and_hook():
     # Confirmed real-world consequence of registration: the dynamic Platform
     # enum member now resolves without needing plugins/platforms/ scanning at all.
     assert Platform("event_post_pipeline").value == "event_post_pipeline"
+
+    from tools.registry import registry
+    for tool_name in ("social_post_status", "social_post_submit"):
+        entry = registry.get_entry(tool_name, scope=mgr.scope_key)
+        assert entry is not None
+        assert entry.toolset == "event_post_pipeline"
