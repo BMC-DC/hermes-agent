@@ -208,6 +208,16 @@ def track_notification(database_url: Optional[str], task_id: str, *, ok: bool, d
     _track_event_only(database_url, task_id, step, status, detail=detail)
 
 
+def track_stylus_retry_requested(database_url: Optional[str], task_id: str, *, ok: bool, detail: Optional[str] = None) -> None:
+    """Called from ``adapter.py``'s ``POST /retry`` (``kind=stylus_blocked``) right after
+    ``kanban_db.unblock_task`` returns — success or "wasn't actually blocked" alike — so
+    the retry attempt itself shows up in the visualizer timeline, same convention as
+    ``track_notification`` above. Never itself a state/current_step transition (the
+    dispatcher picking the task back up is what actually changes ``pipeline_runs``, via
+    whatever step fires next)."""
+    _track_event_only(database_url, task_id, "stylus_retry_requested", "ok" if ok else "error", detail=detail)
+
+
 def _image_list(event_pack: dict[str, Any]) -> list[str]:
     first = (event_pack.get("first") or {}).get("finalUrl")
     rest = [r.get("finalUrl") for r in (event_pack.get("rest") or []) if r.get("finalUrl")]

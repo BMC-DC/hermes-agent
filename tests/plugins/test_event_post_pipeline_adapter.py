@@ -123,3 +123,117 @@ async def test_review_action_approve_comments_on_task(running_adapter, kanban_ho
         assert any("FB APPROVED" in c.body for c in comments)
     finally:
         conn.close()
+
+
+@pytest.mark.asyncio
+async def test_retry_rejects_bad_signature(running_adapter):
+    body = json.dumps({"taskId": "t_x", "kind": "notify", "message": "hi"}).encode()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"http://127.0.0.1:{TEST_PORT}/retry", data=body,
+                                 headers={"X-Webhook-Timestamp": str(int(time.time())),
+                                          "X-Webhook-Signature-V2": "deadbeef", "Content-Type": "application/json"}) as resp:
+            assert resp.status == 401
+
+
+@pytest.mark.asyncio
+async def test_retry_rejects_missing_task_id(running_adapter):
+    body = json.dumps({"kind": "notify", "message": "hi"}).encode()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"http://127.0.0.1:{TEST_PORT}/retry", data=body, headers=_signed_headers(body)) as resp:
+            assert resp.status == 400
+
+
+@pytest.mark.asyncio
+async def test_retry_rejects_unknown_kind(running_adapter):
+    body = json.dumps({"taskId": "adapter-retry-1", "kind": "bogus"}).encode()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"http://127.0.0.1:{TEST_PORT}/retry", data=body, headers=_signed_headers(body)) as resp:
+            assert resp.status == 400
+
+
+@pytest.mark.asyncio
+async def test_retry_notify_requires_message(running_adapter):
+    body = json.dumps({"taskId": "adapter-retry-1", "kind": "notify"}).encode()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"http://127.0.0.1:{TEST_PORT}/retry", data=body, headers=_signed_headers(body)) as resp:
+            assert resp.status == 400
+    body = json.dumps({"taskId": "adapter-retry-1", "kind": "notify", "message": "   "}).encode()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"http://127.0.0.1:{TEST_PORT}/retry", data=body, headers=_signed_headers(body)) as resp:
+            assert resp.status == 400
+
+
+@pytest.mark.asyncio
+async def test_retry_notify_success(running_adapter, monkeypatch):
+    from plugins.platforms.event_post_pipeline import adapter as adapter_module
+
+    async def _fake_send(message):
+        return None
+
+    monkeypatch.setattr(adapter_module.whatsapp_notify, "send_whatsapp_link", _fake_send)
+    body = json.dumps({"taskId": "adapter-retry-1", "kind": "notify", "message": "please retry"}).encode()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"http://127.0.0.1:{TEST_PORT}/retry", data=body, headers=_signed_headers(body)) as resp:
+            assert resp.status == 200
+            payload = await resp.json()
+            assert payload == {"status": "sent"}
+
+
+@pytest.mark.asyncio
+async def test_retry_notify_failure_returns_502(running_adapter, monkeypatch):
+    from plugins.platforms.event_post_pipeline import adapter as adapter_module
+    from plugins.platforms.event_post_pipeline import whatsapp_notify
+
+    async def _fake_send(message):
+        raise whatsapp_notify.WhatsAppNotifyError("no home channel configured")
+
+    monkeypatch.setattr(adapter_module.whatsapp_notify, "send_whatsapp_link", _fake_send)
+    body = json.dumps({"taskId": "adapter-retry-1", "kind": "notify", "message": "please retry"}).encode()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"http://127.0.0.1:{TEST_PORT}/retry", data=body, headers=_signed_headers(body)) as resp:
+            assert resp.status == 502
+
+
+@pytest.mark.asyncio
+async def test_retry_stylus_blocked_unblocks_task(running_adapter, kanban_home):
+    from hermes_cli import kanban_db_connect as kbc
+
+    conn = kbc.connect()
+    try:
+        task_id = kb.create_task(conn, title="Draft social copy: test", body="", assignee="stylus",
+                                  idempotency_key="adapter-retry-2", tenant="event-post-pipeline-v2")
+        assert kb.block_task(conn, task_id, reason="stuck waiting")
+        assert kb.get_task(conn, task_id).status == "blocked"
+    finally:
+        conn.close()
+
+    body = json.dumps({"taskId": task_id, "kind": "stylus_blocked"}).encode()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"http://127.0.0.1:{TEST_PORT}/retry", data=body, headers=_signed_headers(body)) as resp:
+            assert resp.status == 202
+            payload = await resp.json()
+            assert payload == {"status": "retrying"}
+
+    conn = kbc.connect()
+    try:
+        assert kb.get_task(conn, task_id).status != "blocked"
+    finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
+async def test_retry_stylus_blocked_returns_409_when_not_blocked(running_adapter, kanban_home):
+    from hermes_cli import kanban_db_connect as kbc
+
+    conn = kbc.connect()
+    try:
+        task_id = kb.create_task(conn, title="Draft social copy: test", body="", assignee="stylus",
+                                  idempotency_key="adapter-retry-3", tenant="event-post-pipeline-v2")
+        assert kb.get_task(conn, task_id).status == "ready"
+    finally:
+        conn.close()
+
+    body = json.dumps({"taskId": task_id, "kind": "stylus_blocked"}).encode()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"http://127.0.0.1:{TEST_PORT}/retry", data=body, headers=_signed_headers(body)) as resp:
+            assert resp.status == 409

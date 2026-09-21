@@ -332,3 +332,43 @@ def test_second_refine_round_increments_and_closing_comment_targets_latest_round
     # Stylus's lessons skill sees the outcome on the run it actually produced.
     approve = pipeline.handle_review_action(conn, ops, store, task_id=root_id, platform="ig", action="approved", comment="")
     assert approve["task_id"] == r2["task_id"]
+
+
+def test_track_stylus_retry_requested_records_ok_event(fake_visualizer_conn, monkeypatch):
+    monkeypatch.setenv("SPP_DATABASE_URL", "postgresql://irrelevant/test")
+    pipeline.track_stylus_retry_requested("postgresql://irrelevant/test", "task-1", ok=True)
+    assert _steps(fake_visualizer_conn) == ["event:stylus_retry_requested:ok"]
+
+
+def test_track_stylus_retry_requested_records_error_event_with_detail(fake_visualizer_conn):
+    pipeline.track_stylus_retry_requested(
+        "postgresql://irrelevant/test", "task-1", ok=False, detail="task was not in a blocked/scheduled state",
+    )
+    assert _steps(fake_visualizer_conn) == ["event:stylus_retry_requested:error"]
+    # detail is the 4th bound param on the INSERT INTO pipeline_events statement
+    sql, params = fake_visualizer_conn.executed[0]
+    assert "INSERT INTO pipeline_events" in sql
+    assert params[3] == "task was not in a blocked/scheduled state"
+
+
+def test_track_stylus_retry_requested_is_a_no_op_without_database_url(monkeypatch):
+    monkeypatch.delenv("SPP_DATABASE_URL", raising=False)
+    calls = []
+    monkeypatch.setattr(
+        pipeline.db, "get_connection",
+        lambda url=None: calls.append(url) or (_ for _ in ()).throw(AssertionError("should not connect")),
+    )
+    pipeline.track_stylus_retry_requested("", "task-1", ok=True)
+    assert calls == []
+
+
+def test_track_stylus_retry_requested_failure_never_raises(monkeypatch):
+    class _ExplodingConnection:
+        def cursor(self):
+            raise RuntimeError("boom")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(pipeline.db, "get_connection", lambda url=None: _ExplodingConnection())
+    pipeline.track_stylus_retry_requested("postgresql://irrelevant/test", "task-1", ok=True)  # must not raise
