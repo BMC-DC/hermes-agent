@@ -1,11 +1,13 @@
 """Tests for the agent-callable tools Vidu (the general orchestrator) uses to
-query/trigger the event-post-pipeline (``plugins/platforms/event_post_pipeline/tools.py``).
+query/unstick the event-post-pipeline (``plugins/platforms/event_post_pipeline/tools.py``).
 
 ``social_post_status`` is tested against the same hand-rolled fake Postgres
 connection ``test_event_post_pipeline_db.py`` uses (no real Postgres in this
-suite). ``social_post_submit`` is tested end-to-end against a real, throwaway
-Kanban SQLite board — same convention as ``test_event_post_pipeline_pipeline.py``
-— since its whole point is to run the real ``pipeline.handle_intake`` path.
+suite). ``social_post_retry``'s ``stylus_blocked`` path is tested end-to-end
+against a real, throwaway Kanban SQLite board (same convention as
+``test_event_post_pipeline_adapter.py``'s own retry tests, since this is the
+same underlying action via a different transport); its ``notify`` path mocks
+``whatsapp_notify.send_whatsapp_link``, same as the adapter tests do.
 """
 
 from __future__ import annotations
@@ -111,7 +113,7 @@ def test_status_handler_connection_failure_returns_tool_error(monkeypatch):
     assert "error" in out
 
 
-# --- social_post_submit_handler --------------------------------------------------------
+# --- social_post_retry_handler ----------------------------------------------------------
 
 
 @pytest.fixture
@@ -124,54 +126,78 @@ def kanban_home(tmp_path, monkeypatch):
     return home
 
 
-def test_submit_handler_reports_unconfigured_profile(monkeypatch):
+def test_retry_handler_reports_unconfigured_profile(monkeypatch):
     monkeypatch.setattr(tools, "_load_pipeline_extra", lambda: {})
-    out = json.loads(tools.social_post_submit_handler({"description": "A talk on mindfulness"}))
+    out = json.loads(tools.social_post_retry_handler({"task_id": "t1", "kind": "notify", "message": "hi"}))
     assert "error" in out
     assert "not configured" in out["error"]
 
 
-def test_submit_handler_requires_description(monkeypatch):
+def test_retry_handler_requires_task_id(monkeypatch):
     monkeypatch.setattr(tools, "_load_pipeline_extra", lambda: {"port": 8645})
-    out = json.loads(tools.social_post_submit_handler({"description": "  "}))
+    out = json.loads(tools.social_post_retry_handler({"kind": "notify", "message": "hi"}))
     assert "error" in out
-    assert "description" in out["error"]
+    assert "task_id" in out["error"]
 
 
-def test_submit_handler_creates_stylus_task(kanban_home, tmp_path, monkeypatch):
-    monkeypatch.setattr(tools, "_load_pipeline_extra", lambda: {"store_path": str(tmp_path / "store.json")})
-    out = json.loads(tools.social_post_submit_handler({
-        "description": "A day-long meditation retreat with a visiting monk.",
-        "date": "2026-09-27",
-        "image_urls": ["https://example.com/a.jpg", "https://example.com/b.jpg", "https://example.com/c.jpg"],
-        "submitter_name": "Amila",
-        "submitter_phone": "+15551234567",
-    }))
-    assert out["status"] == "accepted"
-    assert out["submission_id"].startswith("chat-")
+def test_retry_handler_rejects_unknown_kind(monkeypatch):
+    monkeypatch.setattr(tools, "_load_pipeline_extra", lambda: {"port": 8645})
+    out = json.loads(tools.social_post_retry_handler({"task_id": "t1", "kind": "bogus"}))
+    assert "error" in out
+    assert "kind" in out["error"]
+
+
+def test_retry_handler_notify_requires_message(monkeypatch):
+    monkeypatch.setattr(tools, "_load_pipeline_extra", lambda: {"port": 8645})
+    out = json.loads(tools.social_post_retry_handler({"task_id": "t1", "kind": "notify"}))
+    assert "error" in out
+    assert "message" in out["error"]
+
+
+def test_retry_handler_notify_success(monkeypatch):
+    monkeypatch.setattr(tools, "_load_pipeline_extra", lambda: {"port": 8645})
+
+    async def _fake_send(message):
+        return None
+
+    monkeypatch.setattr(tools.whatsapp_notify, "send_whatsapp_link", _fake_send)
+    out = json.loads(tools.social_post_retry_handler({"task_id": "t1", "kind": "notify", "message": "please retry"}))
+    assert out == {"status": "sent", "task_id": "t1"}
+
+
+def test_retry_handler_notify_failure_returns_tool_error(monkeypatch):
+    monkeypatch.setattr(tools, "_load_pipeline_extra", lambda: {"port": 8645})
+
+    async def _fake_send(message):
+        raise tools.whatsapp_notify.WhatsAppNotifyError("no home channel configured")
+
+    monkeypatch.setattr(tools.whatsapp_notify, "send_whatsapp_link", _fake_send)
+    out = json.loads(tools.social_post_retry_handler({"task_id": "t1", "kind": "notify", "message": "please retry"}))
+    assert "error" in out
+
+
+def test_retry_handler_stylus_blocked_unblocks_task(kanban_home, monkeypatch):
+    monkeypatch.setattr(tools, "_load_pipeline_extra", lambda: {"port": 8645})
+    conn = kbc.connect()
+    try:
+        task_id = kb.create_task(conn, title="Draft social copy: test", body="", assignee="stylus",
+                                  idempotency_key="tools-retry-1", tenant="event-post-pipeline-v2")
+        assert kb.block_task(conn, task_id, reason="stuck waiting")
+        assert kb.get_task(conn, task_id).status == "blocked"
+    finally:
+        conn.close()
+
+    out = json.loads(tools.social_post_retry_handler({"task_id": task_id, "kind": "stylus_blocked"}))
+    assert out == {"status": "retrying", "task_id": task_id}
 
     conn = kbc.connect()
     try:
-        task = kb.get_task(conn, out["task_id"])
+        assert kb.get_task(conn, task_id).status != "blocked"
     finally:
         conn.close()
-    assert task.assignee == "stylus"
-    assert task.tenant == "event-post-pipeline-v2"
-    assert "meditation retreat" in task.body.lower()
-    assert "https://example.com/a.jpg" in task.body  # first
-    assert "https://example.com/c.jpg" in task.body  # last
-    assert "https://example.com/b.jpg" in task.body  # rest
 
 
-def test_submit_handler_builds_valid_event_pack_with_one_image():
-    pack = tools._build_event_pack({"description": "x", "image_urls": ["https://example.com/only.jpg"]})
-    assert pack["first"] == {"finalUrl": "https://example.com/only.jpg"}
-    assert pack["last"] == {}
-    assert pack["rest"] == []
-
-
-def test_submit_handler_builds_valid_event_pack_with_no_images():
-    pack = tools._build_event_pack({"description": "x"})
-    assert pack["first"] == {}
-    assert pack["last"] == {}
-    assert pack["rest"] == []
+def test_retry_handler_stylus_blocked_returns_error_when_not_blocked(kanban_home, monkeypatch):
+    monkeypatch.setattr(tools, "_load_pipeline_extra", lambda: {"port": 8645})
+    out = json.loads(tools.social_post_retry_handler({"task_id": "no-such-task", "kind": "stylus_blocked"}))
+    assert "error" in out

@@ -1,42 +1,42 @@
 """Agent-callable tools so Vidu (the general WhatsApp-facing orchestrator) can query
-and trigger this plugin's deterministic pipeline — without drafting anything itself
-(Stylus stays the only LLM-drafting step, exactly as it already is for form
-submissions) and without an extra ``delegate_task`` LLM hop (plain ``register_tool``
-function calls, per this plugin's established zero-extra-LLM-cost philosophy).
+and unstick this plugin's deterministic pipeline — without drafting anything itself
+(Stylus stays the only LLM-drafting step) and without an extra ``delegate_task`` LLM
+hop (plain ``register_tool`` function calls, per this plugin's established
+zero-extra-LLM-cost philosophy).
 
 Two tools, one toolset (``event_post_pipeline``):
 
 - ``social_post_status`` — read-only. Recent pipeline runs (state, current step,
   review link) from the same ``pipeline_runs`` table the portal-side visualizer
   already reads. Answers "what's the status", "show me past posts".
-- ``social_post_submit`` — write. Runs the exact same deterministic intake step
-  (``pipeline.handle_intake``) the HTTP ``/intake`` route runs for a form
-  submission — creates the Stylus handoff task, nothing more. Lets a submission
-  start from a WhatsApp chat message instead of the intake form.
+- ``social_post_retry`` — the chat equivalent of the review-page visualizer's own
+  "Retry" button: unblocks a stuck Stylus drafting task, or resends a WhatsApp
+  notification that failed to send. Never touches drafting/review content itself.
+
+Deliberately NOT here: a "submit a new post from chat" tool. Starting a real
+submission means handling photos (the intake form's Cloudinary upload + lower-third
+compositing), which is the publisher's job, not something to reimplement here with a
+degraded image story. Vidu's role for a new submission is to tell the user to use the
+intake form — see the skill file, not a tool.
+
+Also NOT here: anything for handing off writing work to Stylus in general. That's
+already a fully generic capability via the ``kanban`` toolset (``kanban_create`` with
+``assignee="stylus"``) and the ``subagent-orchestration`` skill — this plugin adds
+nothing on top of it, for event posts or any other writing task.
 
 Config is reloaded fresh from ``config.yaml`` on every call rather than held on a
 long-lived object — same reasoning as ``hooks.py``'s own docstring: a tool call
 can't assume it's running in the same process as a live ``EventPostPipelineAdapter``
 instance.
-
-Image handling (``social_post_submit``): accepts already-public image URLs only
-(``image_urls``). It deliberately does NOT accept raw WhatsApp media attachments —
-turning a locally-cached WhatsApp attachment into a public URL would mean either
-giving Hermes its own Cloudinary credentials or adding a new upload endpoint on
-social-post-portal, both real integration decisions nobody has made yet. Chat
-submissions also skip the intake form's lower-third photo compositing (a
-browser-side-only nicety today) — plain photos, same as any other URL. See this
-plugin's README/plan doc for the open follow-up if BMC wants full parity.
 """
 
 from __future__ import annotations
 
 import logging
-import uuid
-from typing import Any, Optional
+from typing import Any
 
-from plugins.platforms.event_post_pipeline import db, pipeline
-from plugins.platforms.event_post_pipeline.store import EventPostPipelineStore, resolve_store_path
+from plugins.platforms.event_post_pipeline import db, pipeline, whatsapp_notify
+from plugins.platforms.event_post_pipeline.hooks import _run_async
 from tools.registry import tool_error, tool_result
 
 logger = logging.getLogger("plugins.platforms.event_post_pipeline")
@@ -62,8 +62,9 @@ SOCIAL_POST_STATUS_SCHEMA = {
     "description": (
         "Look up the status of social-media event posts going through the pipeline: "
         "recent submissions, which step each is on (drafting / awaiting review / "
-        "blocked), and the review-page link. Read-only — use social_post_submit to "
-        "start a new one. Optionally filter by a keyword from the event title."
+        "blocked), and the review-page link. Read-only. To start a new submission, "
+        "tell the user to use the intake form — that's not something you can do from "
+        "chat. Optionally filter by a keyword from the event title."
     ),
     "parameters": {
         "type": "object",
@@ -81,31 +82,27 @@ SOCIAL_POST_STATUS_SCHEMA = {
     },
 }
 
-SOCIAL_POST_SUBMIT_SCHEMA = {
-    "name": "social_post_submit",
+SOCIAL_POST_RETRY_SCHEMA = {
+    "name": "social_post_retry",
     "description": (
-        "Start a new event post submission directly from chat, skipping the intake "
-        "form. Creates the Stylus drafting handoff exactly like a form submission "
-        "does — this tool never drafts or edits the post content itself; Stylus "
-        "still writes the actual FB/IG/blog copy, and a review link comes back via "
-        "the usual WhatsApp notification once it's ready. Images must already be "
-        "public URLs (e.g. a link the user shared) — a raw photo attached in chat "
-        "can't be used here yet."
+        "Unstick a social-media post pipeline run: either retries a Stylus drafting "
+        "task that got stuck 'blocked', or resends a WhatsApp notification that "
+        "previously failed to send. This is the exact same pair of actions the "
+        "review-page visualizer's own 'Retry' button performs — the chat equivalent, "
+        "not a new capability. Never drafts or edits content. Use social_post_status "
+        "first to find the task_id of a blocked/stuck run."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "description": {"type": "string", "description": "What the event/post is about, in the submitter's own words."},
-            "date": {"type": "string", "description": "The event date, as given (free text, e.g. '2026-09-27' or 'this Saturday')."},
-            "quote": {"type": "string", "description": "An optional quote to feature in the post."},
-            "image_urls": {
-                "type": "array", "items": {"type": "string"},
-                "description": "Zero or more already-public image URLs, in display order (first one becomes the lead photo, last becomes the closing photo).",
+            "task_id": {"type": "string", "description": "The Kanban task id to act on (social_post_status's output gives you this)."},
+            "kind": {
+                "type": "string", "enum": ["stylus_blocked", "notify"],
+                "description": "'stylus_blocked' unblocks a stuck Stylus drafting task so the dispatcher picks it back up. 'notify' resends a WhatsApp notification that previously failed.",
             },
-            "submitter_name": {"type": "string", "description": "Name of the person submitting, if known."},
-            "submitter_phone": {"type": "string", "description": "WhatsApp number of the person submitting, if known (E.164-ish, whatever the chat gives)."},
+            "message": {"type": "string", "description": "Required when kind='notify': the exact message text to resend."},
         },
-        "required": ["description"],
+        "required": ["task_id", "kind"],
     },
 }
 
@@ -149,51 +146,42 @@ def social_post_status_handler(args: dict, **_kwargs: Any) -> str:
     return tool_result(runs=[_status_row(r) for r in runs], count=len(runs))
 
 
-def _build_event_pack(args: dict) -> dict[str, Any]:
-    urls = [str(u).strip() for u in (args.get("image_urls") or []) if str(u or "").strip()]
-    first = {"finalUrl": urls[0]} if urls else {}
-    last = {"finalUrl": urls[-1]} if len(urls) > 1 else {}
-    rest = [{"finalUrl": u} for u in urls[1:-1]] if len(urls) > 2 else []
-    return {
-        "date": str(args.get("date") or ""),
-        "description": str(args.get("description") or ""),
-        "quote": str(args.get("quote") or ""),
-        "first": first, "last": last, "rest": rest,
-        "submitterName": str(args.get("submitter_name") or ""),
-        "submitterPhone": str(args.get("submitter_phone") or ""),
-    }
-
-
-def social_post_submit_handler(args: dict, **_kwargs: Any) -> str:
+def social_post_retry_handler(args: dict, **_kwargs: Any) -> str:
     extra = _load_pipeline_extra()
     if not extra:
         return tool_error("event_post_pipeline is not configured for this profile")
-    description = str(args.get("description") or "").strip()
-    if not description:
-        return tool_error("description is required")
+    task_id = str(args.get("task_id") or "").strip()
+    if not task_id:
+        return tool_error("task_id is required")
+    kind = str(args.get("kind") or "").strip()
+    if kind not in ("stylus_blocked", "notify"):
+        return tool_error("kind must be 'stylus_blocked' or 'notify'")
 
-    event_pack = _build_event_pack(args)
-    submission_id = f"chat-{uuid.uuid4().hex[:12]}"
-    board: Optional[str] = extra.get("board")
     db_url = db.resolve_database_url(extra)
-    store = EventPostPipelineStore(resolve_store_path(extra.get("store_path")))
+    if kind == "notify":
+        message = str(args.get("message") or "").strip()
+        if not message:
+            return tool_error("message is required when kind='notify'")
+        try:
+            _run_async(lambda: whatsapp_notify.send_whatsapp_link(message))
+        except Exception as exc:
+            logger.exception("event_post_pipeline: social_post_retry notify failed for task=%s", task_id)
+            pipeline.track_notification(db_url, task_id, ok=False, message=message)
+            return tool_error(f"notify_failed: {exc}")
+        pipeline.track_notification(db_url, task_id, ok=True, message=message)
+        return tool_result(status="sent", task_id=task_id)
 
+    board = extra.get("board")
     from hermes_cli import kanban_db as kb
     from hermes_cli import kanban_db_connect as kbc
 
     conn = kbc.connect(board=board)
     try:
-        ops = pipeline.KanbanOps(kb)
-        try:
-            task_id = pipeline.handle_intake(
-                conn, ops, store, submission_id=submission_id, event_pack=event_pack, database_url=db_url,
-            )
-        except pipeline.PipelineError as exc:
-            logger.error("event_post_pipeline: social_post_submit intake failed for submission=%s: %s", submission_id, exc)
-            return tool_error(f"could not start the pipeline: {exc}")
+        unblocked = kb.unblock_task(conn, task_id)
     finally:
         conn.close()
-    return tool_result(
-        status="accepted", task_id=task_id, submission_id=submission_id,
-        note="Drafting has started. A review link will be posted to the group once Stylus finishes — no need to check back manually.",
-    )
+    if unblocked:
+        pipeline.track_stylus_retry_requested(db_url, task_id, ok=True)
+        return tool_result(status="retrying", task_id=task_id)
+    pipeline.track_stylus_retry_requested(db_url, task_id, ok=False, detail="task was not in a blocked/scheduled state")
+    return tool_error("task is not currently blocked or scheduled — it may have already been retried or resolved")
