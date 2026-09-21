@@ -200,12 +200,21 @@ def track_stylus_blocked(database_url: Optional[str], task_id: str, *, title: st
     )
 
 
-def track_notification(database_url: Optional[str], task_id: str, *, ok: bool, detail: Optional[str] = None) -> None:
+def track_notification(database_url: Optional[str], task_id: str, *, ok: bool, message: str) -> None:
     """Called from ``hooks.py`` and ``adapter.py`` right after a WhatsApp notification
-    send succeeds or fails — never itself a state/current_step transition."""
+    send succeeds or fails — never itself a state/current_step transition.
+
+    ``message`` is always the actual notification text (attempted or sent), never the
+    exception — found the hard way (2026-09-21): the earlier version stored the
+    exception string as ``detail`` on failure, and the visualizer's "Retry notify"
+    button naively resent whatever was in ``detail`` — so retrying a failed notification
+    literally sent the error message ("name 'SimpleNamespace' is not defined") to the
+    WhatsApp group instead of the real content. The exception itself is already
+    captured by each call site's own ``logger.exception(...)``/``logger.error(...)`` —
+    server logs are the right place for it, not a field a retry button reads back."""
     step = "notified" if ok else "notify_failed"
     status = "ok" if ok else "error"
-    _track_event_only(database_url, task_id, step, status, detail=detail)
+    _track_event_only(database_url, task_id, step, status, detail=message)
 
 
 def track_stylus_retry_requested(database_url: Optional[str], task_id: str, *, ok: bool, detail: Optional[str] = None) -> None:

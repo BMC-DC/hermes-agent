@@ -88,9 +88,9 @@ def on_kanban_task_completed(*, task_id: str, **_kwargs: Any) -> None:
             "this would otherwise be silently swallowed at DEBUG level by "
             "hermes_cli.kanban_db._fire_kanban_lifecycle_hook", task_id, result,
         )
-        pipeline.track_notification(db_url, track_task_id, ok=False, detail=str(exc))
+        pipeline.track_notification(db_url, track_task_id, ok=False, message=message)
         return
-    pipeline.track_notification(db_url, track_task_id, ok=True)
+    pipeline.track_notification(db_url, track_task_id, ok=True, message=message)
 
 
 def on_kanban_task_blocked(*, task_id: str, assignee: Optional[str] = None, reason: Optional[str] = None, **_kwargs: Any) -> None:
@@ -126,6 +126,18 @@ def on_kanban_task_blocked(*, task_id: str, assignee: Optional[str] = None, reas
         pipeline.track_stylus_blocked(db_url, root_task_id, title=task.title, reason=reason)
     except Exception:
         logger.exception("[event_post_pipeline] visualizer blocked-tracking failed for task=%s", task_id)
+
+    # Decided 2026-09-21: unlike a failed notification (which already had *something*
+    # attempted and can just be retried), a blocked Stylus task has told nobody anything
+    # yet — this is the one failure mode with no existing alert at all. Tell the group,
+    # with a direct link to the visualizer so someone can open it and hit Retry.
+    try:
+        review_base_url = str(extra.get("review_base_url", "https://bmcposts.vercel.app")).rstrip("/")
+        link = f"{review_base_url}/visualizer?taskId={root_task_id}"
+        alert = f"⚠️ Stylus got stuck on \"{task.title}\": {reason or 'no reason given'}. Continue here: {link}"
+        _run_async(lambda: whatsapp_notify.send_whatsapp_link(alert))
+    except Exception:
+        logger.exception("[event_post_pipeline] blocked-task alert send failed for task=%s", task_id)
 
 
 def _run_async(coro_factory) -> None:

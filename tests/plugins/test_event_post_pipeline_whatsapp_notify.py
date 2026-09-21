@@ -15,6 +15,81 @@ import pytest
 from plugins.platforms.event_post_pipeline import whatsapp_notify
 
 
+def _config_with(platforms: dict):
+    return lambda: {"platforms": platforms}
+
+
+def test_load_whatsapp_config_defaults_to_test_group(monkeypatch):
+    import hermes_cli.config as config_module
+    monkeypatch.setattr(
+        config_module, "load_config",
+        _config_with({"event_post_pipeline": {"extra": {"whatsapp_test_group_chat_id": "test@g.us"}}}),
+    )
+    _, chat_id = whatsapp_notify._load_whatsapp_config()
+    assert chat_id == "test@g.us"
+
+
+def test_load_whatsapp_config_switches_to_production_when_set(monkeypatch):
+    import hermes_cli.config as config_module
+    monkeypatch.setattr(
+        config_module, "load_config",
+        _config_with({
+            "event_post_pipeline": {"extra": {
+                "whatsapp_group_mode": "production",
+                "whatsapp_test_group_chat_id": "test@g.us",
+                "whatsapp_production_group_chat_id": "real-social-media-group@g.us",
+            }},
+        }),
+    )
+    _, chat_id = whatsapp_notify._load_whatsapp_config()
+    assert chat_id == "real-social-media-group@g.us"
+
+
+def test_load_whatsapp_config_production_mode_falls_back_to_test_when_unset(monkeypatch):
+    import hermes_cli.config as config_module
+    monkeypatch.setattr(
+        config_module, "load_config",
+        _config_with({
+            "event_post_pipeline": {"extra": {
+                "whatsapp_group_mode": "production",
+                "whatsapp_test_group_chat_id": "test@g.us",
+                # whatsapp_production_group_chat_id deliberately absent
+            }},
+        }),
+    )
+    _, chat_id = whatsapp_notify._load_whatsapp_config()
+    assert chat_id == "test@g.us"  # never silently sends nowhere
+
+
+def test_load_whatsapp_config_falls_back_to_home_channel_for_backward_compat(monkeypatch):
+    import hermes_cli.config as config_module
+    monkeypatch.setattr(
+        config_module, "load_config",
+        _config_with({
+            "event_post_pipeline": {"extra": {}},  # no whatsapp_test_group_chat_id set at all
+            "whatsapp": {"home_channel": {"chat_id": "legacy-home-channel@g.us"}},
+        }),
+    )
+    _, chat_id = whatsapp_notify._load_whatsapp_config()
+    assert chat_id == "legacy-home-channel@g.us"
+
+
+def test_load_whatsapp_config_returns_whatsapp_platform_extra_not_pipeline_extra(monkeypatch):
+    """Regression guard: _via_standalone_sender passes this straight to the WhatsApp
+    bridge's own standalone_sender_fn as its platform config — it must be the WhatsApp
+    platform's own extra (session_path, bridge_script, ...), never this pipeline's."""
+    import hermes_cli.config as config_module
+    monkeypatch.setattr(
+        config_module, "load_config",
+        _config_with({
+            "whatsapp": {"extra": {"session_path": "/opt/data/whatsapp/session"}},
+            "event_post_pipeline": {"extra": {"whatsapp_test_group_chat_id": "test@g.us"}},
+        }),
+    )
+    extra, _ = whatsapp_notify._load_whatsapp_config()
+    assert extra == {"session_path": "/opt/data/whatsapp/session"}
+
+
 @pytest.mark.asyncio
 async def test_send_whatsapp_link_sends_to_the_configured_home_channel(monkeypatch):
     sent = {}

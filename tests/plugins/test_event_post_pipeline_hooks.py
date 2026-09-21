@@ -127,6 +127,53 @@ def test_on_kanban_task_blocked_tracks_root_task_id_for_a_refine_round(monkeypat
     assert kwargs == {"title": "Redraft FB (round 2): X", "reason": "LLM call failed"}
 
 
+def test_on_kanban_task_blocked_alerts_the_group_with_a_visualizer_link(monkeypatch):
+    """A blocked task hasn't told anyone anything yet (unlike a failed notification,
+    which already attempted something and can be retried) — this is the one failure
+    mode that needs its own alert, decided 2026-09-21 after live testing found it
+    otherwise sat silently stuck with no signal to anyone."""
+    sent = []
+    monkeypatch.setattr(hooks, "_load_pipeline_extra", lambda: {"board": None, "review_base_url": "https://bmcposts.vercel.app"})
+    monkeypatch.setattr(hooks.db, "resolve_database_url", lambda extra: "postgresql://x/y")
+    monkeypatch.setattr(kbc, "connect", _fake_connect)
+    monkeypatch.setattr(
+        kb, "get_task",
+        lambda conn, task_id: _FakeTask(tenant=pipeline.TENANT, idempotency_key="root-1", title="Draft social copy: X"),
+    )
+    monkeypatch.setattr(pipeline, "track_stylus_blocked", lambda *a, **kw: None)
+
+    async def fake_send(message):
+        sent.append(message)
+
+    monkeypatch.setattr(hooks.whatsapp_notify, "send_whatsapp_link", fake_send)
+
+    hooks.on_kanban_task_blocked(task_id="root-1", assignee="stylus", reason="LLM call failed")
+
+    assert len(sent) == 1
+    assert "root-1" in sent[0]
+    assert "https://bmcposts.vercel.app/visualizer?taskId=root-1" in sent[0]
+    assert "LLM call failed" in sent[0]
+    assert "Draft social copy: X" in sent[0]
+
+
+def test_on_kanban_task_blocked_alert_failure_never_raises(monkeypatch):
+    monkeypatch.setattr(hooks, "_load_pipeline_extra", lambda: {"board": None})
+    monkeypatch.setattr(hooks.db, "resolve_database_url", lambda extra: "postgresql://x/y")
+    monkeypatch.setattr(kbc, "connect", _fake_connect)
+    monkeypatch.setattr(
+        kb, "get_task",
+        lambda conn, task_id: _FakeTask(tenant=pipeline.TENANT, idempotency_key="root-1"),
+    )
+    monkeypatch.setattr(pipeline, "track_stylus_blocked", lambda *a, **kw: None)
+
+    async def boom(message):
+        raise RuntimeError("bridge down")
+
+    monkeypatch.setattr(hooks.whatsapp_notify, "send_whatsapp_link", boom)
+
+    hooks.on_kanban_task_blocked(task_id="root-1", assignee="stylus", reason="x")  # must not raise
+
+
 def test_on_kanban_task_blocked_falls_back_to_task_id_when_not_a_refine_round(monkeypatch):
     calls = []
     monkeypatch.setattr(hooks, "_load_pipeline_extra", lambda: {"board": None})

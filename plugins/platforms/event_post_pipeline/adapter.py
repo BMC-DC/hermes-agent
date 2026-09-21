@@ -173,9 +173,9 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
             await whatsapp_notify.send_whatsapp_link(message)
         except Exception as exc:
             logger.exception("[event_post_pipeline] intake notify send failed for task=%s", task_id)
-            await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=False, detail=str(exc))
+            await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=False, message=message)
             return
-        await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=True)
+        await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=True, message=message)
 
     def _upsert_submitter_curator(self, submitter_phone: str, submitter_name: str) -> None:
         conn = db.get_connection(self._db_url)
@@ -238,9 +238,9 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
             await whatsapp_notify.send_whatsapp_link(message)
         except whatsapp_notify.WhatsAppNotifyError as exc:
             logger.error("[event_post_pipeline] review-action notify send failed: %s", exc)
-            await asyncio.to_thread(pipeline.track_notification, self._db_url, action.task_id, ok=False, detail=str(exc))
+            await asyncio.to_thread(pipeline.track_notification, self._db_url, action.task_id, ok=False, message=message)
             return
-        await asyncio.to_thread(pipeline.track_notification, self._db_url, action.task_id, ok=True)
+        await asyncio.to_thread(pipeline.track_notification, self._db_url, action.task_id, ok=True, message=message)
 
     def _resolve_submitter(self, task_id: str) -> "tuple[Optional[dict], Optional[dict]]":
         conn = db.get_connection(self._db_url)
@@ -321,9 +321,9 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
             await whatsapp_notify.send_whatsapp_link(message)
         except whatsapp_notify.WhatsAppNotifyError as exc:
             logger.error("[event_post_pipeline] retry notify send failed for task=%s: %s", task_id, exc)
-            await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=False, detail=str(exc))
+            await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=False, message=message)
             return _json_error(f"notify_failed: {exc}", 502)
-        await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=True)
+        await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=True, message=message)
         return web.json_response({"status": "sent"})
 
 

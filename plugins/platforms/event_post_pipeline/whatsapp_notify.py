@@ -38,16 +38,66 @@ class WhatsAppNotifyError(RuntimeError):
 
 
 def _load_whatsapp_config() -> tuple[dict, Optional[str]]:
-    """``(extra, home_chat_id)`` straight from config.yaml — never a live runtime object,
-    since this may run in a process that never started a gateway."""
+    """``(whatsapp_extra, chat_id)`` straight from config.yaml — never a live runtime
+    object, since this may run in a process that never started a gateway.
+
+    ``whatsapp_extra`` (first element) is the generic WhatsApp *platform's* own extra
+    config (session path, bridge script, etc.) — unrelated to this plugin, but required
+    as-is by ``_via_standalone_sender`` below to talk to the bridge. Do not repoint this
+    at the plugin's own config; it would silently break the standalone sender, which
+    needs the WhatsApp platform's settings, not this pipeline's.
+
+    ``chat_id`` (second element) is resolved from THIS plugin's own config
+    (``platforms.event_post_pipeline.extra``), not the generic
+    ``platforms.whatsapp.home_channel`` — kept separate so another Hermes feature's
+    home-channel change never silently redirects this pipeline's notifications too.
+
+    Test/production group switch (decided 2026-09-21, after testing found every
+    notification going to the "Vidu Test" group by design, not by mistake — the team
+    wants to keep testing against that group deliberately, and switch to the real
+    social-media group only when ready):
+
+      platforms.event_post_pipeline.extra:
+        whatsapp_group_mode: test              # "test" or "production" — flip this one
+                                                # line to switch which group every
+                                                # notification goes to. Nothing else needs
+                                                # to change to run another round of testing
+                                                # later — just flip it back to "test".
+        whatsapp_test_group_chat_id: "..."      # the "Vidu Test" group JID
+        whatsapp_production_group_chat_id: ""   # the real social-media group JID — fill
+                                                 # in when ready to go live; empty/missing
+                                                 # falls back to the test group with a
+                                                 # warning log, never silently to nothing.
+    """
     from hermes_cli.config import load_config
 
     platforms = (load_config() or {}).get("platforms") or {}
     whatsapp = platforms.get("whatsapp") or {}
-    extra = dict(whatsapp.get("extra") or {})
-    home = whatsapp.get("home_channel") or {}
-    chat_id = home.get("chat_id") if isinstance(home, dict) else None
-    return extra, chat_id
+    whatsapp_extra = dict(whatsapp.get("extra") or {})
+
+    event_post_pipeline = platforms.get("event_post_pipeline") or {}
+    pipeline_extra = dict(event_post_pipeline.get("extra") or {})
+
+    mode = str(pipeline_extra.get("whatsapp_group_mode") or "test").strip().lower()
+    test_chat_id = pipeline_extra.get("whatsapp_test_group_chat_id")
+    production_chat_id = pipeline_extra.get("whatsapp_production_group_chat_id")
+
+    if not test_chat_id:
+        # Backward-compat fallback for a profile that hasn't added the new keys yet —
+        # the generic WhatsApp home_channel is where this plugin's test group JID lived
+        # before this switch existed.
+        home = whatsapp.get("home_channel") or {}
+        test_chat_id = home.get("chat_id") if isinstance(home, dict) else None
+
+    if mode == "production":
+        if production_chat_id:
+            return whatsapp_extra, production_chat_id
+        logger.warning(
+            "[event_post_pipeline] whatsapp_group_mode=production but "
+            "whatsapp_production_group_chat_id is not set — falling back to the test "
+            "group rather than sending nowhere"
+        )
+    return whatsapp_extra, test_chat_id
 
 
 async def _via_live_adapter(chat_id: str, message: str) -> Optional[bool]:
