@@ -278,3 +278,55 @@ def list_drafts(conn, submission_id: int) -> list[dict[str, Any]]:
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM post_platform_drafts WHERE submission_id = %s ORDER BY platform, round", (submission_id,))
         return [dict(row) for row in cur.fetchall()]
+
+
+# --- pipeline_runs / pipeline_events: visualizer tracking --------------------------------
+#
+# Per ``extra/plans/socialpost/migrations/0002_pipeline_visualizer.sql`` (VIDUOPS repo).
+# Ownership boundary: Hermes only ever INSERTs/UPSERTs into these two tables — it never
+# deletes rows and never sets state='done'. Marking a run fully complete (and removing
+# it — 'done' rows shouldn't even exist) is social-post-portal's job, since only it knows
+# when every platform draft has reached a terminal status. ``pipeline_events`` has a FK to
+# ``pipeline_runs.task_id``, so every ``record_pipeline_event`` call site must have already
+# called ``upsert_pipeline_run`` for that task_id (directly, or via an earlier step in the
+# same run's lifecycle) — never call it for a task_id that might not have a row yet.
+
+
+def upsert_pipeline_run(conn, task_id: str, *, title: str, state: str, current_step: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO pipeline_runs (task_id, title, state, current_step)
+            VALUES (%(task_id)s, %(title)s, %(state)s, %(current_step)s)
+            ON CONFLICT (task_id) DO UPDATE SET
+                title = EXCLUDED.title,
+                state = EXCLUDED.state,
+                current_step = EXCLUDED.current_step,
+                updated_at = now()
+            """,
+            {"task_id": task_id, "title": title, "state": state, "current_step": current_step},
+        )
+
+
+def record_pipeline_event(
+    conn, task_id: str, step: str, status: str, *, detail: Optional[str] = None, actor: Optional[str] = None,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO pipeline_events (task_id, step, status, detail, actor) VALUES (%s, %s, %s, %s, %s)",
+            (task_id, step, status, detail, actor),
+        )
+
+
+def get_submission_id_by_slug(conn, slug: str) -> Optional[int]:
+    """Used only to backfill ``pipeline_runs.submission_id`` once social-post-portal's
+    own ``post_submissions`` row exists (it doesn't yet at intake time)."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM post_submissions WHERE slug = %s", (slug,))
+        row = cur.fetchone()
+        return row["id"] if row else None
+
+
+def link_submission_id(conn, task_id: str, submission_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute("UPDATE pipeline_runs SET submission_id = %s WHERE task_id = %s", (submission_id, task_id))
