@@ -68,10 +68,15 @@ def _load_whatsapp_config() -> tuple[dict, Optional[str]]:
                                                  # in when ready to go live; empty/missing
                                                  # falls back to the test group with a
                                                  # warning log, never silently to nothing.
+    Resolved from the root/default profile's config unconditionally (via
+    ``root_config.load_root_config()``), regardless of which profile's process
+    this happens to run in — see that module's docstring for why: this call
+    site is exactly the one that shipped the 2026-09-21 bug (a Stylus-profile
+    config drift silently misrouting real notifications).
     """
-    from hermes_cli.config import load_config
+    from plugins.platforms.event_post_pipeline.root_config import load_root_config
 
-    platforms = (load_config() or {}).get("platforms") or {}
+    platforms = load_root_config().get("platforms") or {}
     whatsapp = platforms.get("whatsapp") or {}
     whatsapp_extra = dict(whatsapp.get("extra") or {})
 

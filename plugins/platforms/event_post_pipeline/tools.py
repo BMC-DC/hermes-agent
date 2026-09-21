@@ -37,16 +37,10 @@ from typing import Any
 
 from plugins.platforms.event_post_pipeline import db, pipeline, whatsapp_notify
 from plugins.platforms.event_post_pipeline.hooks import _run_async
+from plugins.platforms.event_post_pipeline.root_config import load_pipeline_extra as _load_pipeline_extra
 from tools.registry import tool_error, tool_result
 
 logger = logging.getLogger("plugins.platforms.event_post_pipeline")
-
-
-def _load_pipeline_extra() -> dict:
-    from hermes_cli.config import load_config
-
-    platforms = (load_config() or {}).get("platforms") or {}
-    return dict((platforms.get("event_post_pipeline") or {}).get("extra") or {})
 
 
 def check_pipeline_tools_available() -> bool:

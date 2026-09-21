@@ -7,8 +7,10 @@ in (confirmed: ``hermes_cli/plugins.py``'s hook comment — "completed/blocked
 fire in the WORKER"). So unlike ``adapter.py``'s HTTP routes, this callback
 can never assume a live ``EventPostPipelineAdapter`` instance exists in its
 process (the gateway may not even be running here) — it reloads its own
-config straight from ``config.yaml`` on every call, exactly like
-``whatsapp_notify.py`` does for the same reason.
+config on every call via ``root_config.load_pipeline_extra()``, which always
+resolves the root/default profile's ``config.yaml`` regardless of which
+profile's process this callback happens to be running in — see that
+module's docstring for why (a real bug this fixes, not just style).
 """
 
 from __future__ import annotations
@@ -18,16 +20,10 @@ from typing import Any, Optional
 
 from plugins.platforms.event_post_pipeline import db, pipeline, security, whatsapp_notify
 from plugins.platforms.event_post_pipeline.review_client import ReviewClientConfig
+from plugins.platforms.event_post_pipeline.root_config import load_pipeline_extra as _load_pipeline_extra
 from plugins.platforms.event_post_pipeline.store import EventPostPipelineStore, resolve_store_path
 
 logger = logging.getLogger("plugins.platforms.event_post_pipeline")
-
-
-def _load_pipeline_extra() -> dict:
-    from hermes_cli.config import load_config
-
-    platforms = (load_config() or {}).get("platforms") or {}
-    return dict((platforms.get("event_post_pipeline") or {}).get("extra") or {})
 
 
 def on_kanban_task_completed(*, task_id: str, **_kwargs: Any) -> None:
