@@ -27,6 +27,7 @@ whole group instead, so that resolution path was removed as dead code
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from typing import Optional
 
 logger = logging.getLogger("plugins.platforms.event_post_pipeline")

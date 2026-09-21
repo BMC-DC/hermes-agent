@@ -53,6 +53,39 @@ async def test_send_whatsapp_message_falls_back_to_standalone_sender_when_no_liv
 
 
 @pytest.mark.asyncio
+async def test_via_standalone_sender_actually_runs_its_real_body(monkeypatch):
+    """Regression test: a prior refactor deleted the `from types import SimpleNamespace`
+    import while this function's body still constructs one, and every existing test
+    mocked `_via_standalone_sender` away entirely — so a plain NameError shipped to
+    production undetected (only surfaced once the pipeline visualizer showed a real
+    "Notify Failed: name 'SimpleNamespace' is not defined" event). This test calls the
+    real function body, only mocking its two external dependencies (plugin discovery,
+    config loading), so a missing import fails loudly here instead of in production."""
+    sender_calls = []
+
+    async def fake_standalone_sender_fn(pconfig, chat_id, message):
+        sender_calls.append((pconfig.extra, chat_id, message))
+        return {"ok": True}
+
+    fake_entry = type("Entry", (), {"standalone_sender_fn": staticmethod(fake_standalone_sender_fn)})()
+    fake_registry = type("Registry", (), {"get": staticmethod(lambda name: fake_entry)})()
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "hermes_cli.plugins",
+        type("M", (), {"discover_plugins": staticmethod(lambda: None)}),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules, "gateway.platform_registry",
+        type("M", (), {"platform_registry": fake_registry}),
+    )
+    monkeypatch.setattr(whatsapp_notify, "_load_whatsapp_config", lambda: ({"some": "extra"}, "chat"))
+
+    await whatsapp_notify._via_standalone_sender("120363430479652029@g.us", "hi")
+
+    assert sender_calls == [({"some": "extra"}, "120363430479652029@g.us", "hi")]
+
+
+@pytest.mark.asyncio
 async def test_send_whatsapp_message_raises_on_live_adapter_failure(monkeypatch):
     async def fake_via_live_adapter(chat_id, message):
         return False  # a live adapter tried and reported failure
