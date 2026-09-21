@@ -62,6 +62,7 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
         # SPP_DATABASE_URL) just gets no curator-resolved notifications, never a crash —
         # same "degrade gracefully" rule the rest of this plugin already follows.
         self._db_url: str = db.resolve_database_url(extra)
+        self._review_base_url: str = str(extra.get("review_base_url", "https://spp.buddhameditationdc.org")).rstrip("/")
         self._runner = None
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
@@ -168,7 +169,8 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
             except db.DatabaseError as exc:
                 logger.error("[event_post_pipeline] could not upsert submitter curator: %s", exc)
         who = f"{submitter_name} ({submitter_phone})" if (submitter_name or submitter_phone) else "an unidentified submitter"
-        message = f"New event post submission from {who} — drafting has started (task {task_id})."
+        visualizer_link = f"{self._review_base_url}/visualizer?taskId={task_id}"
+        message = f"New event post submission from {who} — drafting has started. Track it here: {visualizer_link}"
         try:
             await whatsapp_notify.send_whatsapp_link(message)
         except Exception as exc:
