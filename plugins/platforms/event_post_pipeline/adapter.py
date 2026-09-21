@@ -75,6 +75,7 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
         app.router.add_get("/health", self._handle_health)
         app.router.add_post("/intake", self._handle_intake)
         app.router.add_post("/review-action", self._handle_review_action)
+        app.router.add_post("/retry", self._handle_retry)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, self._host, self._port)
@@ -264,6 +265,67 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
             )
         finally:
             conn.close()
+
+    async def _handle_retry(self, request: "web.Request") -> "web.Response":
+        """``POST /retry`` — the visualizer's "unstick this" action: retries a failed
+        WhatsApp notification, or unblocks a Stylus task that's stuck ``blocked``/
+        ``scheduled``. Same HMAC auth as every other route on this listener (this is
+        the plugin's own adapter, not a new auth surface). See the contract in the
+        plan doc / this repo's own commit message for the exact request/response
+        shape the portal-side visualizer relies on."""
+        payload, error = await self._read_authenticated_json(request)
+        if error is not None:
+            return error
+        if not isinstance(payload, dict):
+            return _json_error("invalid retry payload", 400)
+        task_id = payload.get("taskId")
+        kind = payload.get("kind")
+        if not isinstance(task_id, str) or not models.SAFE_ID_RE.match(task_id):
+            return _json_error("missing or invalid taskId", 400)
+        if kind == "stylus_blocked":
+            return await self._retry_stylus_blocked(task_id)
+        if kind == "notify":
+            message = payload.get("message")
+            if not isinstance(message, str) or not message.strip():
+                return _json_error("missing or empty message for kind=notify", 400)
+            return await self._retry_notify(task_id, message)
+        return _json_error(f"unknown kind {kind!r}", 400)
+
+    async def _retry_stylus_blocked(self, task_id: str) -> "web.Response":
+        try:
+            unblocked = await asyncio.to_thread(self._run_unblock_task, task_id)
+        except Exception as exc:
+            logger.exception("[event_post_pipeline] retry unblock failed for task=%s", task_id)
+            return _json_error(f"unblock_failed: {exc}", 502)
+        if unblocked:
+            await asyncio.to_thread(pipeline.track_stylus_retry_requested, self._db_url, task_id, ok=True)
+            return web.json_response({"status": "retrying"}, status=202)
+        await asyncio.to_thread(
+            pipeline.track_stylus_retry_requested, self._db_url, task_id, ok=False,
+            detail="task was not in a blocked/scheduled state",
+        )
+        return _json_error("task is not currently blocked or scheduled — it may have already been retried or resolved", 409)
+
+    def _run_unblock_task(self, task_id: str) -> bool:
+        from hermes_cli import kanban_db as kb
+        from hermes_cli import kanban_db_connect as kbc
+
+        conn = kbc.connect(board=self._board)
+        try:
+            return kb.unblock_task(conn, task_id)
+        finally:
+            conn.close()
+
+    async def _retry_notify(self, task_id: str, message: str) -> "web.Response":
+        try:
+            await whatsapp_notify.send_whatsapp_link(message)
+        except whatsapp_notify.WhatsAppNotifyError as exc:
+            logger.error("[event_post_pipeline] retry notify send failed for task=%s: %s", task_id, exc)
+            await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=False, detail=str(exc))
+            return _json_error(f"notify_failed: {exc}", 502)
+        await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=True)
+        return web.json_response({"status": "sent"})
+
 
 def _build_adapter(config: PlatformConfig) -> EventPostPipelineAdapter:
     return EventPostPipelineAdapter(config)
