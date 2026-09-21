@@ -10,7 +10,11 @@ real submission's "review ready" WhatsApp notification silently never sent.
 from __future__ import annotations
 
 import asyncio
+import types
 
+from hermes_cli import kanban_db as kb
+from hermes_cli import kanban_db_connect as kbc
+from plugins.platforms.event_post_pipeline import hooks, pipeline
 from plugins.platforms.event_post_pipeline.hooks import _run_async
 
 
@@ -44,3 +48,115 @@ def test_run_async_inside_an_already_running_event_loop():
 
     asyncio.run(_outer())
     assert calls == ["ran"]
+
+
+# --- on_kanban_task_blocked: visualizer wiring for a Kanban-dispatcher-level event -----------
+#
+# ``kanban_task_blocked`` is not something this plugin's own code triggers (unlike
+# ``kanban_task_completed``, which pipeline.py's own handle_stylus_completion reacts to);
+# it's purely a lifecycle event the Kanban dispatcher fires. These tests fake out Kanban
+# and Postgres entirely and only check the callback's own filtering/wiring logic.
+
+
+class _FakeTask:
+    def __init__(self, tenant, idempotency_key, title="Draft social copy: X"):
+        self.tenant = tenant
+        self.idempotency_key = idempotency_key
+        self.title = title
+
+
+def _fake_connect(board=None):
+    return types.SimpleNamespace(close=lambda: None)
+
+
+def test_on_kanban_task_blocked_ignores_non_stylus_assignee(monkeypatch):
+    calls = []
+    monkeypatch.setattr(hooks, "_load_pipeline_extra", lambda: {"board": None})
+    monkeypatch.setattr(pipeline, "track_stylus_blocked", lambda *a, **kw: calls.append((a, kw)))
+    hooks.on_kanban_task_blocked(task_id="t1", assignee="whatsapp", reason="x")
+    assert calls == []
+
+
+def test_on_kanban_task_blocked_ignores_unconfigured_profile(monkeypatch):
+    calls = []
+    monkeypatch.setattr(hooks, "_load_pipeline_extra", lambda: {})
+    monkeypatch.setattr(pipeline, "track_stylus_blocked", lambda *a, **kw: calls.append((a, kw)))
+    hooks.on_kanban_task_blocked(task_id="t1", assignee="stylus", reason="x")
+    assert calls == []
+
+
+def test_on_kanban_task_blocked_ignores_no_database_url_configured(monkeypatch):
+    calls = []
+    monkeypatch.setattr(hooks, "_load_pipeline_extra", lambda: {"board": None})
+    monkeypatch.setattr(hooks.db, "resolve_database_url", lambda extra: "")
+    monkeypatch.setattr(kbc, "connect", lambda **kw: (_ for _ in ()).throw(AssertionError("should not connect to Kanban")))
+    monkeypatch.setattr(pipeline, "track_stylus_blocked", lambda *a, **kw: calls.append((a, kw)))
+    hooks.on_kanban_task_blocked(task_id="t1", assignee="stylus", reason="x")
+    assert calls == []
+
+
+def test_on_kanban_task_blocked_ignores_other_tenants(monkeypatch):
+    calls = []
+    monkeypatch.setattr(hooks, "_load_pipeline_extra", lambda: {"board": None})
+    monkeypatch.setattr(hooks.db, "resolve_database_url", lambda extra: "postgresql://x/y")
+    monkeypatch.setattr(kbc, "connect", _fake_connect)
+    monkeypatch.setattr(kb, "get_task", lambda conn, task_id: _FakeTask(tenant="some-other-tenant", idempotency_key="t1"))
+    monkeypatch.setattr(pipeline, "track_stylus_blocked", lambda *a, **kw: calls.append((a, kw)))
+    hooks.on_kanban_task_blocked(task_id="t1", assignee="stylus", reason="boom")
+    assert calls == []
+
+
+def test_on_kanban_task_blocked_tracks_root_task_id_for_a_refine_round(monkeypatch):
+    calls = []
+    monkeypatch.setattr(hooks, "_load_pipeline_extra", lambda: {"board": None})
+    monkeypatch.setattr(hooks.db, "resolve_database_url", lambda extra: "postgresql://x/y")
+    monkeypatch.setattr(kbc, "connect", _fake_connect)
+    monkeypatch.setattr(
+        kb, "get_task",
+        lambda conn, task_id: _FakeTask(
+            tenant=pipeline.TENANT, idempotency_key="root-1-fb-r2", title="Redraft FB (round 2): X",
+        ),
+    )
+    monkeypatch.setattr(pipeline, "track_stylus_blocked", lambda *a, **kw: calls.append((a, kw)))
+
+    hooks.on_kanban_task_blocked(task_id="root-1-fb-r2", assignee="stylus", reason="LLM call failed")
+
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args == ("postgresql://x/y", "root-1")  # the root task id, not the refine subtask id
+    assert kwargs == {"title": "Redraft FB (round 2): X", "reason": "LLM call failed"}
+
+
+def test_on_kanban_task_blocked_falls_back_to_task_id_when_not_a_refine_round(monkeypatch):
+    calls = []
+    monkeypatch.setattr(hooks, "_load_pipeline_extra", lambda: {"board": None})
+    monkeypatch.setattr(hooks.db, "resolve_database_url", lambda extra: "postgresql://x/y")
+    monkeypatch.setattr(kbc, "connect", _fake_connect)
+    monkeypatch.setattr(
+        kb, "get_task",
+        lambda conn, task_id: _FakeTask(tenant=pipeline.TENANT, idempotency_key="root-1", title="Draft social copy: X"),
+    )
+    monkeypatch.setattr(pipeline, "track_stylus_blocked", lambda *a, **kw: calls.append((a, kw)))
+
+    hooks.on_kanban_task_blocked(task_id="root-1", assignee="stylus", reason="timeout")
+
+    args, kwargs = calls[0]
+    assert args == ("postgresql://x/y", "root-1")
+    assert kwargs["reason"] == "timeout"
+
+
+def test_on_kanban_task_blocked_tracking_failure_never_raises(monkeypatch):
+    """Non-fatal by design (this whole hook fires inside a Kanban-dispatcher process it
+    must never disrupt)."""
+    monkeypatch.setattr(hooks, "_load_pipeline_extra", lambda: {"board": None})
+    monkeypatch.setattr(hooks.db, "resolve_database_url", lambda extra: "postgresql://x/y")
+    monkeypatch.setattr(kbc, "connect", _fake_connect)
+    monkeypatch.setattr(
+        kb, "get_task", lambda conn, task_id: _FakeTask(tenant=pipeline.TENANT, idempotency_key="root-1"),
+    )
+
+    def _boom(*a, **kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(pipeline, "track_stylus_blocked", _boom)
+    hooks.on_kanban_task_blocked(task_id="root-1", assignee="stylus", reason="x")  # must not raise

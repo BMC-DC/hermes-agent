@@ -200,3 +200,58 @@ def test_list_drafts_orders_by_platform_and_round():
     sql, params = conn.executed[0]
     assert "post_platform_drafts" in sql
     assert params == (7,)
+
+
+# --- pipeline_runs / pipeline_events: visualizer tracking -----------------------------------
+
+
+def test_upsert_pipeline_run_sends_expected_upsert_shape():
+    conn = _FakeConnection([{"one": None}])
+    db.upsert_pipeline_run(conn, "task-1", title="A short title", state="running", current_step="intake_received")
+    sql, params = conn.executed[0]
+    assert "INSERT INTO pipeline_runs" in sql
+    assert "ON CONFLICT (task_id) DO UPDATE SET" in sql
+    assert "title = EXCLUDED.title" in sql
+    assert "state = EXCLUDED.state" in sql
+    assert "current_step = EXCLUDED.current_step" in sql
+    assert "updated_at = now()" in sql
+    assert params == {
+        "task_id": "task-1", "title": "A short title", "state": "running", "current_step": "intake_received",
+    }
+
+
+def test_record_pipeline_event_inserts_with_optional_fields():
+    conn = _FakeConnection([{"one": None}])
+    db.record_pipeline_event(conn, "task-1", "stylus_done", "ok", detail="https://example/review", actor="stylus")
+    sql, params = conn.executed[0]
+    assert "INSERT INTO pipeline_events" in sql
+    assert params == ("task-1", "stylus_done", "ok", "https://example/review", "stylus")
+
+
+def test_record_pipeline_event_defaults_detail_and_actor_to_none():
+    conn = _FakeConnection([{"one": None}])
+    db.record_pipeline_event(conn, "task-1", "intake_received", "ok")
+    _sql, params = conn.executed[0]
+    assert params == ("task-1", "intake_received", "ok", None, None)
+
+
+def test_get_submission_id_by_slug_found():
+    conn = _FakeConnection([{"one": {"id": 42}}])
+    assert db.get_submission_id_by_slug(conn, "my-slug") == 42
+    sql, params = conn.executed[0]
+    assert "post_submissions" in sql
+    assert params == ("my-slug",)
+
+
+def test_get_submission_id_by_slug_missing_returns_none():
+    conn = _FakeConnection([{"one": None}])
+    assert db.get_submission_id_by_slug(conn, "no-such-slug") is None
+
+
+def test_link_submission_id_updates_pipeline_runs():
+    conn = _FakeConnection([{"one": None}])
+    db.link_submission_id(conn, "task-1", 42)
+    sql, params = conn.executed[0]
+    assert "UPDATE pipeline_runs" in sql
+    assert "submission_id" in sql
+    assert params == (42, "task-1")

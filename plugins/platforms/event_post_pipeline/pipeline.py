@@ -21,6 +21,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from plugins.platforms.event_post_pipeline import db
 from plugins.platforms.event_post_pipeline.review_client import (
     ReviewClientConfig, ReviewClientError, create_review, slug_from_review_url, update_review,
 )
@@ -90,6 +91,123 @@ def _wrap_untrusted(event_pack: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# --- Pipeline visualizer tracking ---------------------------------------------------------
+#
+# Best-effort only: per whatsapp_notify.py's own stated rule ("a notification problem
+# should never take down the deterministic pipeline logic around it"), the same applies
+# here — a visualizer-tracking failure must never break the actual pipeline. Every helper
+# below swallows its own errors (after logging) and is a silent no-op when no Postgres is
+# configured for this profile (same "degrade gracefully" convention as db_url elsewhere in
+# this plugin).
+
+
+def _resolve_visualizer_db_url(database_url: Optional[str]) -> str:
+    return database_url if database_url is not None else db.resolve_database_url()
+
+
+def _display_title(record: Optional[dict[str, Any]], fallback: str) -> str:
+    description = (record or {}).get("description")
+    return _short_title(description) if description else fallback
+
+
+def _track_run(
+    database_url: Optional[str], task_id: str, *, title: str, state: str, current_step: str,
+    step: str, status: str, detail: Optional[str] = None, actor: Optional[str] = None,
+) -> None:
+    """Upserts the ``pipeline_runs`` row then appends a ``pipeline_events`` row — for a
+    call site that represents a real state/step transition."""
+    url = _resolve_visualizer_db_url(database_url)
+    if not url:
+        return
+    try:
+        conn = db.get_connection(url)
+    except db.DatabaseError:
+        logger.debug("event_post_pipeline: visualizer tracking skipped (no Postgres) for task=%s step=%s", task_id, step)
+        return
+    try:
+        db.upsert_pipeline_run(conn, task_id, title=title, state=state, current_step=current_step)
+        db.record_pipeline_event(conn, task_id, step, status, detail=detail, actor=actor)
+    except Exception:
+        logger.exception("event_post_pipeline: visualizer tracking failed for task=%s step=%s", task_id, step)
+    finally:
+        conn.close()
+
+
+def _track_event_only(
+    database_url: Optional[str], task_id: str, step: str, status: str, *,
+    detail: Optional[str] = None, actor: Optional[str] = None,
+) -> None:
+    """Appends a ``pipeline_events`` row without touching ``pipeline_runs``' state/
+    current_step — for events that aren't themselves a state transition (a notification
+    send, a review action taken). Relies on an earlier ``_track_run`` call in this run's
+    lifecycle having already created the ``pipeline_runs`` row (true from intake onward)."""
+    url = _resolve_visualizer_db_url(database_url)
+    if not url:
+        return
+    try:
+        conn = db.get_connection(url)
+    except db.DatabaseError:
+        logger.debug("event_post_pipeline: visualizer tracking skipped (no Postgres) for task=%s step=%s", task_id, step)
+        return
+    try:
+        db.record_pipeline_event(conn, task_id, step, status, detail=detail, actor=actor)
+    except Exception:
+        logger.exception("event_post_pipeline: visualizer event tracking failed for task=%s step=%s", task_id, step)
+    finally:
+        conn.close()
+
+
+def _link_submission_if_resolvable(database_url: Optional[str], task_id: str, review_url: str) -> None:
+    """Best-effort backfill of ``pipeline_runs.submission_id`` once social-post-portal's
+    own row exists (resolved via the review-page slug, which is a stable 1:1 key on
+    ``post_submissions``). Silently does nothing if it can't be resolved — not critical,
+    per the visualizer spec."""
+    url = _resolve_visualizer_db_url(database_url)
+    if not url:
+        return
+    try:
+        slug = slug_from_review_url(review_url)
+    except Exception:
+        return
+    try:
+        conn = db.get_connection(url)
+    except db.DatabaseError:
+        return
+    try:
+        submission_id = db.get_submission_id_by_slug(conn, slug)
+        if submission_id is not None:
+            db.link_submission_id(conn, task_id, submission_id)
+    except Exception:
+        logger.exception("event_post_pipeline: visualizer submission-id link failed for task=%s", task_id)
+    finally:
+        conn.close()
+
+
+def root_task_id_for_idempotency_key(idempotency_key: Optional[str]) -> Optional[str]:
+    """The root Stylus task id for a (possibly refine-round) idempotency key — public so
+    ``hooks.py``'s ``kanban_task_blocked`` callback can resolve the ``pipeline_runs`` key
+    for a blocked refine-round task without reaching into this module's private regex."""
+    match = _REFINE_IDEMPOTENCY_RE.match(idempotency_key or "")
+    return match.group("root") if match else None
+
+
+def track_stylus_blocked(database_url: Optional[str], task_id: str, *, title: str, reason: Optional[str]) -> None:
+    """Called from ``hooks.py``'s ``kanban_task_blocked`` callback — a Kanban-dispatcher-
+    level event this plugin's own code doesn't otherwise see."""
+    _track_run(
+        database_url, task_id, title=title, state="blocked", current_step="stylus_blocked",
+        step="stylus_blocked", status="error", detail=reason,
+    )
+
+
+def track_notification(database_url: Optional[str], task_id: str, *, ok: bool, detail: Optional[str] = None) -> None:
+    """Called from ``hooks.py`` and ``adapter.py`` right after a WhatsApp notification
+    send succeeds or fails — never itself a state/current_step transition."""
+    step = "notified" if ok else "notify_failed"
+    status = "ok" if ok else "error"
+    _track_event_only(database_url, task_id, step, status, detail=detail)
+
+
 def _image_list(event_pack: dict[str, Any]) -> list[str]:
     first = (event_pack.get("first") or {}).get("finalUrl")
     rest = [r.get("finalUrl") for r in (event_pack.get("rest") or []) if r.get("finalUrl")]
@@ -97,12 +215,29 @@ def _image_list(event_pack: dict[str, Any]) -> list[str]:
     return [u for u in ([first] + rest + [last]) if u]
 
 
-def handle_intake(conn, ops: KanbanOps, store: EventPostPipelineStore, *, submission_id: str, event_pack: dict[str, Any]) -> str:
+def handle_intake(
+    conn, ops: KanbanOps, store: EventPostPipelineStore, *, submission_id: str, event_pack: dict[str, Any],
+    database_url: Optional[str] = None,
+) -> str:
     """Step 2: create the Stylus handoff. No LLM call. Returns the new task id."""
     description = str(event_pack.get("description") or "")
+    title = _short_title(description) if description else submission_id
     task_id = ops.create_task(
-        conn, title=f"Draft social copy: {_short_title(description)}", body=_wrap_untrusted(event_pack),
+        conn, title=f"Draft social copy: {title}", body=_wrap_untrusted(event_pack),
         assignee="stylus", idempotency_key=submission_id, tenant=TENANT, created_by=CREATED_BY,
+    )
+    # Visualizer: "intake received" and "Stylus task created" both happen at this exact
+    # call site (a single Kanban task creation serves both), so both events are recorded
+    # here, back to back — see the plugin's own doc comment about merging near-simultaneous
+    # lifecycle events (whatsapp_notify.py / adapter.py's notification merge for the same
+    # reason).
+    _track_run(
+        database_url, task_id, title=title, state="running", current_step="intake_received",
+        step="intake_received", status="ok",
+    )
+    _track_run(
+        database_url, task_id, title=title, state="running", current_step="stylus_drafting",
+        step="stylus_drafting", status="ok",
     )
     store.upsert_submission(
         submission_id,
@@ -162,6 +297,7 @@ def _blog_seo_payload(blog: dict[str, Any]) -> dict[str, Any]:
 
 def handle_stylus_completion(
     conn, ops: KanbanOps, store: EventPostPipelineStore, review_config: ReviewClientConfig, task_id: str,
+    database_url: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     """The ``kanban_task_completed`` hook callback's core logic (transport/async
     concerns live in ``adapter.py``). Returns a dict describing what happened (for
@@ -177,11 +313,15 @@ def handle_stylus_completion(
     metadata = _extract_stylus_metadata(run)
     refine = _REFINE_IDEMPOTENCY_RE.match(task.idempotency_key or "")
     if refine:
-        return _handle_refine_round_completion(conn, ops, store, review_config, task, metadata, refine.group("platform"))
-    return _handle_first_round_completion(conn, ops, store, review_config, task, metadata)
+        return _handle_refine_round_completion(
+            conn, ops, store, review_config, task, metadata, refine.group("platform"), database_url,
+        )
+    return _handle_first_round_completion(conn, ops, store, review_config, task, metadata, database_url)
 
 
-def _handle_first_round_completion(conn, ops, store, review_config, task, metadata: dict[str, Any]) -> dict[str, Any]:
+def _handle_first_round_completion(
+    conn, ops, store, review_config, task, metadata: dict[str, Any], database_url: Optional[str] = None,
+) -> dict[str, Any]:
     record = store.get_submission(task.idempotency_key) or {}
     blog = metadata["blog"]
     event_title = str(metadata.get("event_title") or _short_title(record.get("description") or task.title))
@@ -196,10 +336,17 @@ def _handle_first_round_completion(conn, ops, store, review_config, task, metada
         raise PipelineError(str(exc)) from exc
     ops.add_comment(conn, task.id, CREATED_BY, f"Review page: {review_url}")
     store.upsert_submission(task.idempotency_key, {"review_url": review_url})
-    return {"action": "created_review_page", "task_id": task.id, "review_url": review_url}
+    _track_run(
+        database_url, task.id, title=event_title, state="waiting", current_step="awaiting_review",
+        step="stylus_done", status="ok", detail=review_url,
+    )
+    _link_submission_if_resolvable(database_url, task.id, review_url)
+    return {"action": "created_review_page", "task_id": task.id, "root_task_id": task.id, "review_url": review_url}
 
 
-def _handle_refine_round_completion(conn, ops, store, review_config, task, metadata: dict[str, Any], platform: str) -> dict[str, Any]:
+def _handle_refine_round_completion(
+    conn, ops, store, review_config, task, metadata: dict[str, Any], platform: str, database_url: Optional[str] = None,
+) -> dict[str, Any]:
     record = _record_for_task(conn, ops, store, task)
     review_url = (record or {}).get("review_url")
     if not review_url:
@@ -214,7 +361,15 @@ def _handle_refine_round_completion(conn, ops, store, review_config, task, metad
         raise PipelineError(str(exc)) from exc
     root_task_id = (record or {}).get("root_task_id") or task.idempotency_key.rsplit("-", 2)[0]
     store.upsert_submission(root_task_id, {"rounds": {platform: {"task_id": task.id, "status": "pending"}}})
-    return {"action": "updated_review_page", "task_id": task.id, "platform": platform, "review_url": review_url}
+    _track_run(
+        database_url, root_task_id, title=_display_title(record, root_task_id), state="waiting",
+        current_step="awaiting_review", step="stylus_done", status="ok", detail=review_url,
+    )
+    _link_submission_if_resolvable(database_url, root_task_id, review_url)
+    return {
+        "action": "updated_review_page", "task_id": task.id, "root_task_id": root_task_id,
+        "platform": platform, "review_url": review_url,
+    }
 
 
 # --- Step 5/6: reacting to a review-page action -----------------------------------------
@@ -238,6 +393,7 @@ def _current_platform_task(conn, ops: KanbanOps, root_task_id: str, platform: st
 
 def handle_review_action(
     conn, ops: KanbanOps, store: EventPostPipelineStore, *, task_id: str, platform: str, action: str, comment: str,
+    database_url: Optional[str] = None,
 ) -> dict[str, Any]:
     """Step 5/6: a review-page button click. ``task_id`` here is the review page's
     recorded ``taskId`` — always the *root* Stylus task, per the skill's own contract
@@ -253,6 +409,10 @@ def handle_review_action(
     if action in ("approved", "rejected"):
         outcome_line = f"{platform.upper()} {action.upper()} via review page: {comment}" if comment else f"{platform.upper()} {action.upper()} via review page"
         ops.add_comment(conn, current_task.id, CREATED_BY, outcome_line)
+        # Deliberately does NOT touch pipeline_runs' state/current_step: social-post-portal
+        # owns deciding when a submission is fully done (see db.py's ownership-boundary
+        # docstring) — this is only the timeline event.
+        _track_event_only(database_url, task_id, "action_taken", "ok", detail=f"{action} {platform}")
         return {"action": action, "task_id": current_task.id, "platform": platform}
 
     if action == "refine":
@@ -266,6 +426,11 @@ def handle_review_action(
             body=body, assignee="stylus", idempotency_key=idempotency_key, tenant=TENANT, created_by=CREATED_BY,
         )
         store.upsert_submission(task_id, {"rounds": {platform: {"task_id": new_task_id, "round": next_round, "status": "in_progress"}}})
+        _track_run(
+            database_url, task_id, title=_display_title(record, root_task.title.removeprefix("Draft social copy: ")),
+            state="running", current_step="refine_drafting", step="refine_dispatched", status="ok",
+            detail=f"{platform} round {next_round}",
+        )
         return {"action": "refine_dispatched", "task_id": new_task_id, "platform": platform, "round": next_round}
 
     raise PipelineError(f"unknown review action {action!r}")

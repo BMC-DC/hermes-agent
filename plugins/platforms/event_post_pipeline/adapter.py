@@ -168,7 +168,13 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
                 logger.error("[event_post_pipeline] could not upsert submitter curator: %s", exc)
         who = f"{submitter_name} ({submitter_phone})" if (submitter_name or submitter_phone) else "an unidentified submitter"
         message = f"New event post submission from {who} — drafting has started (task {task_id})."
-        await whatsapp_notify.send_whatsapp_link(message)
+        try:
+            await whatsapp_notify.send_whatsapp_link(message)
+        except Exception as exc:
+            logger.exception("[event_post_pipeline] intake notify send failed for task=%s", task_id)
+            await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=False, detail=str(exc))
+            return
+        await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=True)
 
     def _upsert_submitter_curator(self, submitter_phone: str, submitter_name: str) -> None:
         conn = db.get_connection(self._db_url)
@@ -184,7 +190,9 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
         conn = kbc.connect(board=self._board)
         try:
             ops = pipeline.KanbanOps(kb)
-            return pipeline.handle_intake(conn, ops, self._store, submission_id=submission_id, event_pack=payload)
+            return pipeline.handle_intake(
+                conn, ops, self._store, submission_id=submission_id, event_pack=payload, database_url=self._db_url,
+            )
         finally:
             conn.close()
 
@@ -229,6 +237,9 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
             await whatsapp_notify.send_whatsapp_link(message)
         except whatsapp_notify.WhatsAppNotifyError as exc:
             logger.error("[event_post_pipeline] review-action notify send failed: %s", exc)
+            await asyncio.to_thread(pipeline.track_notification, self._db_url, action.task_id, ok=False, detail=str(exc))
+            return
+        await asyncio.to_thread(pipeline.track_notification, self._db_url, action.task_id, ok=True)
 
     def _resolve_submitter(self, task_id: str) -> "tuple[Optional[dict], Optional[dict]]":
         conn = db.get_connection(self._db_url)
@@ -249,7 +260,7 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
             ops = pipeline.KanbanOps(kb)
             return pipeline.handle_review_action(
                 conn, ops, self._store, task_id=action.task_id, platform=action.platform,
-                action=action.action, comment=action.comment,
+                action=action.action, comment=action.comment, database_url=self._db_url,
             )
         finally:
             conn.close()

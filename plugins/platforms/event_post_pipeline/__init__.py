@@ -19,7 +19,7 @@ from __future__ import annotations
 from plugins.platforms.event_post_pipeline.adapter import (
     EventPostPipelineAdapter, check_event_post_pipeline_requirements, _build_adapter,
 )
-from plugins.platforms.event_post_pipeline.hooks import on_kanban_task_completed
+from plugins.platforms.event_post_pipeline.hooks import on_kanban_task_blocked, on_kanban_task_completed
 
 
 def register(ctx) -> None:
@@ -33,3 +33,4 @@ def register(ctx) -> None:
         emoji="🗞️",
     )
     ctx.register_hook("kanban_task_completed", on_kanban_task_completed)
+    ctx.register_hook("kanban_task_blocked", on_kanban_task_blocked)
