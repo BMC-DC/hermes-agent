@@ -29,6 +29,12 @@ from plugins.platforms.newsletter_pipeline import security
 
 logger = logging.getLogger("plugins.platforms.newsletter_pipeline")
 
+# Mirrors social-post-portal's lib/newsletter.ts LOCK_TTL (24hr, deliberately
+# longer than event_post_pipeline's 1hr — a newsletter review is lower-
+# frequency/higher-stakes, see newsletter-pipeline-plan.md's "Open items").
+DEFAULT_LOCK_TTL_SECONDS = 24 * 60 * 60
+DEFAULT_REMINDER_INTERVAL_SECONDS = 2 * 60 * 60
+
 try:
     import psycopg2
     import psycopg2.extras
@@ -157,3 +163,50 @@ def link_newsletter_issue_id(conn, task_id: str, newsletter_issue_id: int) -> No
             "UPDATE pipeline_runs SET newsletter_issue_id = %s WHERE task_id = %s",
             (newsletter_issue_id, task_id),
         )
+
+
+# --- newsletter_issues: review-claim lock + reminder sweep -------------------------------
+#
+# Mirrors event_post_pipeline.db's post_submissions lock/reminder functions, same shapes,
+# against newsletter_issues instead. Read-only into newsletter_drafts for reminder
+# eligibility — drafts are still only ever written through review_client.py's HTTP contract.
+
+
+def release_expired_locks(conn, ttl_seconds: int = DEFAULT_LOCK_TTL_SECONDS) -> list[dict[str, Any]]:
+    """Releases every newsletter_issues review-claim lock older than ``ttl_seconds`` and
+    returns the affected rows *before* release — same CAS-flavored single
+    ``UPDATE ... RETURNING *`` as event_post_pipeline.db.release_expired_locks."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE newsletter_issues SET locked_by = NULL, locked_at = NULL, updated_at = now() "
+            "WHERE locked_by IS NOT NULL AND locked_at < now() - %s::interval "
+            "RETURNING *",
+            (f"{int(ttl_seconds)} seconds",),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def find_due_reminders(conn, interval_seconds: int = DEFAULT_REMINDER_INTERVAL_SECONDS) -> list[dict[str, Any]]:
+    """Issues whose latest draft round is still non-terminal (pending or
+    refine_requested — not yet approved/rejected) and whose reminder is due:
+    never reminded, or last reminded more than ``interval_seconds`` ago."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT i.* FROM newsletter_issues i
+            WHERE EXISTS (
+                SELECT 1 FROM newsletter_drafts d
+                WHERE d.issue_id = i.id
+                  AND d.status IN ('pending', 'refine_requested')
+                  AND d.round = (SELECT MAX(round) FROM newsletter_drafts WHERE issue_id = i.id)
+            )
+            AND (i.last_reminder_at IS NULL OR i.last_reminder_at < now() - %s::interval)
+            """,
+            (f"{int(interval_seconds)} seconds",),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def stamp_reminder_sent(conn, issue_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute("UPDATE newsletter_issues SET last_reminder_at = now(), updated_at = now() WHERE id = %s", (issue_id,))

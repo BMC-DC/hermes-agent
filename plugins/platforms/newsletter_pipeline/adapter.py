@@ -149,7 +149,11 @@ class NewsletterPipelineAdapter(BasePlatformAdapter):
             except db.DatabaseError as exc:
                 logger.error("[newsletter_pipeline] could not upsert submitter curator: %s", exc)
         who = f"{submitter_name} ({submitter_phone})" if (submitter_name or submitter_phone) else "an unidentified submitter"
-        message = f"New newsletter submission from {who} for {payload.get('issueMonth', '')} — drafting has started."
+        visualizer_link = f"{self._review_base_url}/visualizer?taskId={task_id}"
+        message = (
+            f"New newsletter submission from {who} for {payload.get('issueMonth', '')} — "
+            f"drafting has started. Track it here: {visualizer_link}"
+        )
         try:
             await whatsapp_notify.send_whatsapp_link(message)
         except Exception:

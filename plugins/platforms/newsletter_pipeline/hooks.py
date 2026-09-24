@@ -20,6 +20,13 @@ logger = logging.getLogger("plugins.platforms.newsletter_pipeline")
 
 
 def on_kanban_task_completed(*, task_id: str, **_kwargs: Any) -> None:
+    try:
+        _handle_task_completed(task_id=task_id)
+    except Exception:
+        logger.exception("[newsletter_pipeline] on_kanban_task_completed failed for task=%s", task_id)
+
+
+def _handle_task_completed(*, task_id: str) -> None:
     extra = _load_pipeline_extra()
     if not extra:
         return  # plugin not configured in this profile — nothing to react to
@@ -72,13 +79,32 @@ def on_kanban_task_blocked(*, task_id: str, assignee: Optional[str] = None, reas
     """Registered for ``kanban_task_blocked`` — mirrors
     ``event_post_pipeline.hooks.on_kanban_task_blocked``, including visualizer
     tracking (wired up alongside pipeline_runs.newsletter_issue_id — see
-    extra/plans/newsletter/migrations/0002_newsletter_visualizer.sql)."""
+    extra/plans/newsletter/migrations/0002_newsletter_visualizer.sql).
+
+    Found the hard way (2026-09-24): the whole body used to run unwrapped —
+    a single exception anywhere in it (``_load_pipeline_extra()``,
+    ``kb.get_task``, etc.) is silently swallowed at DEBUG level by the
+    caller (``hermes_cli.kanban_db._fire_kanban_lifecycle_hook``, per this
+    module's own top-of-file docstring), so a blocked Stylus task could go
+    completely unannounced with zero trace in a normal INFO-level log. Now
+    wrapped end-to-end so any failure surfaces at ERROR instead — the one
+    failure mode with no other alert at all deserves the loudest handling
+    here, not the quietest.
+    """
     if assignee != "stylus":
-        return
+        return  # cheap short-circuit before loading config or touching Kanban at all
+    try:
+        _handle_task_blocked(task_id=task_id, reason=reason)
+    except Exception:
+        logger.exception("[newsletter_pipeline] on_kanban_task_blocked failed for task=%s", task_id)
+
+
+def _handle_task_blocked(*, task_id: str, reason: Optional[str]) -> None:
     extra = _load_pipeline_extra()
     if not extra:
         return
     db_url = db.resolve_database_url(extra)
+    review_base_url = str(extra.get("review_base_url", "https://spp.buddhameditationdc.org")).rstrip("/")
 
     from hermes_cli import kanban_db as kb
     from hermes_cli import kanban_db_connect as kbc
@@ -97,11 +123,9 @@ def on_kanban_task_blocked(*, task_id: str, assignee: Optional[str] = None, reas
     except Exception:
         logger.exception("[newsletter_pipeline] visualizer blocked-tracking failed for task=%s", task_id)
 
-    try:
-        alert = f"⚠️ Stylus got stuck on \"{task.title}\": {reason or 'no reason given'}. Task id: {task_id}"
-        _run_async(lambda: whatsapp_notify.send_whatsapp_link(alert))
-    except Exception:
-        logger.exception("[newsletter_pipeline] blocked-task alert send failed for task=%s", task_id)
+    link = f"{review_base_url}/visualizer?taskId={root_task_id}"
+    alert = f"⚠️ Stylus got stuck on \"{task.title}\": {reason or 'no reason given'}. Continue here: {link}"
+    _run_async(lambda: whatsapp_notify.send_whatsapp_link(alert))
 
 
 def _run_async(coro_factory) -> None:
