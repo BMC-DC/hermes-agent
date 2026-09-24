@@ -18,9 +18,10 @@ import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from plugins.platforms.newsletter_pipeline import db
+from plugins.platforms.newsletter_pipeline import brevo_client, db
+from plugins.platforms.newsletter_pipeline.brevo_client import BrevoClientError, BrevoConfig
 from plugins.platforms.newsletter_pipeline.review_client import (
-    ReviewClientConfig, ReviewClientError, create_review, slug_from_review_url, update_review,
+    ReviewClientConfig, ReviewClientError, create_review, record_send, slug_from_review_url, update_review,
 )
 from plugins.platforms.newsletter_pipeline.store import NewsletterPipelineStore
 
@@ -307,7 +308,10 @@ def _handle_first_round_completion(conn, ops, store, review_config, task, metada
     except ReviewClientError as exc:
         raise PipelineError(str(exc)) from exc
     ops.add_comment(conn, task.id, CREATED_BY, f"Review page: {review_url}")
-    store.upsert_issue(task.idempotency_key, {"review_url": review_url})
+    # latest_draft is read back by handle_review_action's approve path to
+    # send via Brevo -- Hermes never re-fetches drafted content from the
+    # portal, it's the same payload just POSTed to create_review above.
+    store.upsert_issue(task.idempotency_key, {"review_url": review_url, "latest_draft": _draft_payload(metadata)})
     _track_run(
         database_url, task.id, title=issue_month, state="waiting", current_step="awaiting_review",
         step="stylus_done", status="ok", detail=review_url,
@@ -327,7 +331,7 @@ def _handle_refine_completion(conn, ops, store, review_config, task, metadata: d
     except ReviewClientError as exc:
         raise PipelineError(str(exc)) from exc
     root_task_id = (record or {}).get("root_task_id") or task.idempotency_key.rsplit("-", 1)[0]
-    store.upsert_issue(root_task_id, {"round_task_id": task.id})
+    store.upsert_issue(root_task_id, {"round_task_id": task.id, "latest_draft": _draft_payload(metadata)})
     _track_run(
         database_url, root_task_id, title=(record or {}).get("issue_month", root_task_id), state="waiting",
         current_step="awaiting_review", step="stylus_done", status="ok", detail=review_url,
@@ -350,9 +354,47 @@ def _round_tasks(conn, ops: KanbanOps, root_task_id: str) -> list:
     return sorted(int((t.idempotency_key or "").rsplit("r", 1)[-1]) for t in matches)
 
 
+def _maybe_send_via_brevo(
+    store: NewsletterPipelineStore, review_config: ReviewClientConfig, brevo_config: Optional[BrevoConfig],
+    *, root_task_id: str,
+) -> Optional[dict[str, Any]]:
+    """Sends the approved issue via Brevo and records the result — only when
+    ``brevo_config`` is both passed (feature-flagged on, see
+    ``extra.brevo_send_enabled`` / ``adapter.py``) and fully configured
+    (real API key + sender + list ids). Returns a dict describing the
+    outcome for the caller to comment/notify with, or ``None`` when the
+    feature is simply off (the expected state until Amila has real Brevo
+    access — see brevo_client.py's module docstring). Raises
+    :class:`PipelineError` if the feature is on but the send itself fails —
+    per the plan's "erroring loudly rather than silently no-opping" decision.
+    """
+    if brevo_config is None:
+        return None
+    record = store.get_issue(root_task_id) or {}
+    review_url = record.get("review_url")
+    draft = record.get("latest_draft")
+    if not review_url or not draft:
+        raise PipelineError(f"approved but no stored draft/review_url found for task {root_task_id!r} — cannot send")
+    slug = slug_from_review_url(review_url)
+    try:
+        campaign_id = brevo_client.create_and_send_campaign(
+            brevo_config, subject=draft["subjectLine"], html_content=draft["assembledHtml"],
+            campaign_name=f"Newsletter — {record.get('issue_month', slug)}",
+        )
+    except BrevoClientError as exc:
+        raise PipelineError(f"Brevo send failed: {exc}") from exc
+    try:
+        record_send(review_config, slug=slug, brevo_campaign_id=str(campaign_id))
+    except ReviewClientError as exc:
+        # The send itself succeeded -- don't fail the approve action over a
+        # bookkeeping write, but this must not be silent either.
+        logger.error("newsletter_pipeline: Brevo send succeeded (campaign=%s) but send-log recording failed: %s", campaign_id, exc)
+    return {"brevo_campaign_id": campaign_id}
+
+
 def handle_review_action(
-    conn, ops: KanbanOps, store: NewsletterPipelineStore, *, task_id: str, action: str, comment: str,
-    database_url: Optional[str] = None,
+    conn, ops: KanbanOps, store: NewsletterPipelineStore, review_config: ReviewClientConfig, *, task_id: str, action: str, comment: str,
+    database_url: Optional[str] = None, brevo_config: Optional[BrevoConfig] = None,
 ) -> dict[str, Any]:
     """A review-page button click. ``task_id`` is always the *root* Stylus task."""
     root_task = ops.get_task(conn, task_id)
@@ -366,7 +408,13 @@ def handle_review_action(
         # owns deciding when a newsletter issue is fully done (same ownership boundary as
         # event_post_pipeline) — this is only the timeline event.
         _track_event_only(database_url, task_id, "action_taken", "ok", detail=action)
-        return {"action": action, "task_id": root_task.id}
+        result: dict[str, Any] = {"action": action, "task_id": root_task.id}
+        if action == "approved":
+            send_result = _maybe_send_via_brevo(store, review_config, brevo_config, root_task_id=task_id)
+            if send_result is not None:
+                ops.add_comment(conn, root_task.id, CREATED_BY, f"Sent via Brevo (campaign {send_result['brevo_campaign_id']})")
+                result["brevo_campaign_id"] = send_result["brevo_campaign_id"]
+        return result
 
     if action == "refine":
         record = store.get_issue(task_id) or {}

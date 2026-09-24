@@ -21,7 +21,9 @@ except ImportError:
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import BasePlatformAdapter, SendResult
-from plugins.platforms.newsletter_pipeline import db, models, pipeline, security, whatsapp_notify
+from plugins.platforms.newsletter_pipeline import brevo_client, db, models, pipeline, security, whatsapp_notify
+from plugins.platforms.newsletter_pipeline.brevo_client import BrevoConfig
+from plugins.platforms.newsletter_pipeline.review_client import ReviewClientConfig
 from plugins.platforms.newsletter_pipeline.store import NewsletterPipelineStore, resolve_store_path
 
 logger = logging.getLogger("plugins.platforms.newsletter_pipeline")
@@ -54,6 +56,16 @@ class NewsletterPipelineAdapter(BasePlatformAdapter):
         self._store = NewsletterPipelineStore(resolve_store_path(extra.get("store_path")))
         self._db_url: str = db.resolve_database_url(extra)
         self._review_base_url: str = str(extra.get("review_base_url", "https://spp.buddhameditationdc.org")).rstrip("/")
+        self._review_config = ReviewClientConfig(
+            base_url=self._review_base_url, create_secret=security.resolve_review_create_secret(extra),
+        )
+        # Feature flag, off by default -- per newsletter-pipeline-plan.md's
+        # explicit "build the infra, wire it later" decision. Even once
+        # BREVO_API_KEY exists, nothing sends until this is deliberately
+        # flipped on in config.yaml: platforms.newsletter_pipeline.extra.brevo_send_enabled: true
+        self._brevo_config: Optional[BrevoConfig] = (
+            brevo_client.resolve_brevo_config(extra) if extra.get("brevo_send_enabled") else None
+        )
         self._runner = None
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
@@ -178,14 +190,16 @@ class NewsletterPipelineAdapter(BasePlatformAdapter):
         except pipeline.PipelineError as exc:
             logger.error("[newsletter_pipeline] review action failed for task=%s: %s", action.task_id, exc)
             return _json_error("action_failed", 502)
-        await self._notify_review_action(action)
+        await self._notify_review_action(action, result)
         return web.json_response({"ok": True, **result})
 
-    async def _notify_review_action(self, action: models.ReviewActionPayload) -> None:
+    async def _notify_review_action(self, action: models.ReviewActionPayload, result: dict) -> None:
         verb = {"approved": "approved", "rejected": "rejected", "refine": "sent back for a refine"}.get(action.action, action.action)
         message = f"The newsletter draft was {verb} on review."
         if action.comment:
             message += f" Reviewer note: {action.comment}"
+        if result.get("brevo_campaign_id"):
+            message += f" Sent via Brevo (campaign {result['brevo_campaign_id']})."
         try:
             await whatsapp_notify.send_whatsapp_link(message)
         except whatsapp_notify.WhatsAppNotifyError as exc:
@@ -202,8 +216,8 @@ class NewsletterPipelineAdapter(BasePlatformAdapter):
         try:
             ops = pipeline.KanbanOps(kb)
             return pipeline.handle_review_action(
-                conn, ops, self._store, task_id=action.task_id, action=action.action, comment=action.comment,
-                database_url=self._db_url,
+                conn, ops, self._store, self._review_config, task_id=action.task_id, action=action.action,
+                comment=action.comment, database_url=self._db_url, brevo_config=self._brevo_config,
             )
         finally:
             conn.close()

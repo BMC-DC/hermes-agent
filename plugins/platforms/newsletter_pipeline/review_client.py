@@ -90,6 +90,20 @@ def update_review(
     _post_json(f"{config.base_url}/api/newsletter-review/{slug}/update", draft, config.create_secret, timeout=timeout)
 
 
+def record_send(
+    config: ReviewClientConfig, *, slug: str, brevo_campaign_id: Optional[str], timeout: float = DEFAULT_TIMEOUT_SECONDS,
+) -> None:
+    """Records a completed Brevo send against this issue — called right after
+    a successful ``brevo_client.create_and_send_campaign`` call in
+    ``pipeline.py``'s approve path."""
+    _post_json(
+        f"{config.base_url}/api/newsletter-review/{slug}/send-log",
+        {"brevoCampaignId": brevo_campaign_id},
+        config.create_secret,
+        timeout=timeout,
+    )
+
+
 def slug_from_review_url(url: str) -> str:
     """Extracts the slug from a recorded review URL (``.../review/newsletter/<slug>``)."""
     slug = url.rstrip("/").rsplit("/", 1)[-1]

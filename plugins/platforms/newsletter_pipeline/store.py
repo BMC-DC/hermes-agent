@@ -35,11 +35,14 @@ def resolve_store_path(path: Optional[str] = None) -> Path:
 class NewsletterPipelineStore:
     """JSON-backed cache keyed by ``submission_id``.
 
-    Each record: ``{root_task_id, review_url, issue_month, bhante_advice_text,
-    bhante_advice_quote, recap_summary, recap_image, featured_announcement_text,
-    featured_cta_label, featured_cta_url, programs_summary, subject_line,
-    preview_text, images, submitter_name, submitter_phone, round, created_at,
-    updated_at}``.
+    Each record: ``{root_task_id, review_url, round_task_id, latest_draft,
+    issue_month, bhante_advice_text, bhante_advice_quote, recap_summary,
+    recap_image, featured_announcement_text, featured_cta_label,
+    featured_cta_url, programs_summary, subject_line, preview_text, images,
+    submitter_name, submitter_phone, created_at, updated_at}``.
+    ``latest_draft`` (the Stylus-drafted subjectLine/assembledHtml/etc.
+    payload) is read back by ``pipeline.py``'s approve-triggered Brevo send
+    — see ``_maybe_send_via_brevo``.
     """
 
     def __init__(self, path: Path | str):
