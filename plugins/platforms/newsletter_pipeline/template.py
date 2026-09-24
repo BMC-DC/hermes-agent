@@ -14,10 +14,21 @@ inside an LLM instead of in code, where it belongs).
 
 If Section 10's skeleton ever changes shape, update this module and
 Stylus's ``email-newsletter``/``examples-newsletter`` skills in the same
-change — this file IS the design system's Section 4/5/9, not an
+change — this file IS the design system's Section 4/5/9/10, not an
 independent reimplementation of it; keep it in sync by hand the same way
 the three copies of design-system.md itself must move together (see
 Email/CLAUDE.md).
+
+As of design-system.md v2.4: "This Month's Programs" is always a real
+bulleted list (Section 5.11, ``_bullet_list``/``programs_section_html``)
+built straight from the curator's structured intake, never from Stylus
+prose — ``programs_paragraph`` was removed from Stylus's contract entirely
+(see ``DRAFT_METADATA_FIELDS`` in pipeline.py). Likewise the optional
+"Bonus callout" section (Section 10 step 4, ``bonus_callout_section_html``)
+is curator-supplied only. Both follow the same principle: only genuine
+prose composition goes through Stylus/the LLM — facts the system already
+has, structured, pass straight from intake to deterministic HTML, the same
+way the CTA URL/button label/photo already did before this change.
 """
 
 from __future__ import annotations
@@ -66,6 +77,59 @@ def _pull_quote(text: str) -> str:
     </table>
   </td>
 </tr>"""
+
+
+def _bullet_list(items: list[dict[str, str]]) -> str:
+    """One bulleted row per item — design-system.md Section 5.11. Each item
+    is {"label": str, "detail": str}; always used for "This Month's
+    Programs" now (curator-supplied, never Stylus prose) and optionally for
+    the bonus callout section."""
+    rows = []
+    for i, item in enumerate(items):
+        bottom = 0 if i == len(items) - 1 else 14
+        label = escape(item.get("label", ""))
+        detail = escape(item.get("detail", ""))
+        rows.append(
+            f'<tr><td style="padding:0 0 {bottom}px 0;">'
+            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>'
+            '<td valign="top" width="20" style="font-family:\'Poppins\',\'Segoe UI\',Verdana,Arial,sans-serif; '
+            'font-size:15px; line-height:1.6; color:#D68B4B; padding-top:1px;">&bull;</td>'
+            '<td valign="top" class="bmc-font" style="font-family:\'Poppins\',\'Segoe UI\',Verdana,Arial,sans-serif; '
+            f'font-size:15px; line-height:1.6; color:{NAVY};"><strong style="color:{NAVY};">{label}</strong> &mdash; {detail}</td>'
+            "</tr></table></td></tr>"
+        )
+    return (
+        '<tr><td class="bmc-pad" style="padding:0 40px 36px 40px;">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+        'style="background-color:#FBEEE1; border:1px solid #E7E2DC; border-radius:14px;">'
+        '<tr><td style="padding:24px 28px;">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
+        + "".join(rows) + "</table></td></tr></table></td></tr>"
+    )
+
+
+def _callout_box(heading: Optional[str], text: str) -> str:
+    """Section 5.4 — a single free-prose aside in the same container as
+    5.3/5.11, kept separate from the bulleted list for non-item-shaped
+    content."""
+    heading_html = ""
+    if heading:
+        heading_html = (
+            '<tr><td class="bmc-font" style="font-family:\'Poppins\',\'Segoe UI\',Verdana,Arial,sans-serif; '
+            'font-size:13px; font-weight:600; letter-spacing:0.4px; text-transform:uppercase; color:#B8722E; '
+            f'padding-bottom:16px;">{escape(heading)}</td></tr>'
+        )
+    return (
+        '<tr><td class="bmc-pad" style="padding:0 40px 36px 40px;">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+        'style="background-color:#FBEEE1; border:1px solid #E7E2DC; border-radius:14px;">'
+        '<tr><td style="padding:24px 28px;">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
+        + heading_html
+        + '<tr><td class="bmc-font" style="font-family:\'Poppins\',\'Segoe UI\',Verdana,Arial,sans-serif; '
+        f'font-size:15px; line-height:1.6; color:{NAVY};">{escape(text)}</td></tr>'
+        "</table></td></tr></table></td></tr>"
+    )
 
 
 def _photo(url: str, alt: str, *, square: bool = False) -> str:
@@ -326,11 +390,32 @@ def featured_announcement_section_html(paragraph: str, cta_label: str, cta_url: 
     )
 
 
-def programs_section_html(paragraph: str) -> str:
+def programs_section_html(items: list[dict[str, str]]) -> str:
+    """Always a real bulleted list now (design-system.md v2.4, Section 10
+    step 6) — curator-supplied {label, detail} items, never Stylus prose.
+    See Email/CLAUDE.md: this module is design-system.md's Section 4/5/9
+    reproduced as code; keep both in sync by hand."""
     return (
-        _subtitle("This Month's Programs") + "\n" + _paragraphs(paragraph) + "\n"
+        _subtitle("This Month's Programs") + "\n" + _bullet_list(items) + "\n"
         + _secondary_button("Events Calendar", CALENDAR_URL)
     )
+
+
+def bonus_callout_section_html(
+    heading: Optional[str],
+    items: Optional[list[dict[str, str]]],
+    text: Optional[str],
+) -> str:
+    """Section 10 step 4 (v2.4) — optional, curator-supplied only, never
+    Stylus-authored. Returns "" when there's nothing to show; callers must
+    treat an empty string as "omit this section entirely" rather than
+    inserting an empty block. `items` (list form, e.g. translations) takes
+    precedence over `text` (single prose aside) when both are given."""
+    if items:
+        return _bullet_list(items) if not heading else _subtitle(heading) + "\n" + _bullet_list(items)
+    if text:
+        return _callout_box(heading, text)
+    return ""
 
 
 def render_newsletter_html(
@@ -343,14 +428,20 @@ def render_newsletter_html(
     recap_html: str,
     featured_announcement_html: str,
     programs_html: str,
+    bonus_callout_html: str = "",
 ) -> str:
     """Assembles the full newsletter page from the per-section HTML above —
     the deterministic counterpart to Stylus's plain-text drafting contract
     (see pipeline.py/SOUL.md). No HTML ever comes from Stylus; every tag
-    here is a fixed template from design-system.md Sections 4/5/9."""
-    body = "\n\n".join([
-        _hero(eyebrow_label, hero_headline), _header(),
-        bhante_advice_html, recap_html, featured_announcement_html, programs_html,
+    here is a fixed template from design-system.md Sections 4/5/9/10.
+    `bonus_callout_html` is optional and only included when non-empty
+    (curator-supplied extra material — never inserted as an empty block)."""
+    sections = [_hero(eyebrow_label, hero_headline), _header(), bhante_advice_html, recap_html]
+    if bonus_callout_html:
+        sections.append(bonus_callout_html)
+    sections += [
+        featured_announcement_html, programs_html,
         _sign_off("With loving-kindness,", "Buddha Meditation Center"), _footer(),
-    ])
+    ]
+    body = "\n\n".join(sections)
     return _HTML_SKELETON.format(title=escape(subject_line), preheader=escape(preview_text), body=body)

@@ -8,7 +8,7 @@ Every function here is plain, synchronous, testable Python — no LLM call.
 Stylus produces **plain text only** — ``kanban_complete(metadata={
 "subject_line", "preview_text", "eyebrow_label", "hero_headline",
 "bhante_advice_paragraph", "recap_paragraph",
-"featured_announcement_paragraph", "programs_paragraph"})`` — see
+"featured_announcement_paragraph"})`` — see
 ``/home/bmc/.hermes/profiles/stylus/SOUL.md``'s newsletter section.
 ``template.py`` (not Stylus) turns that plain text into HTML; this is the
 same "Stylus writes words, code does layout" split the FB/IG/blog flow
@@ -18,6 +18,16 @@ newsletter run) that this both violates deterministic-first and produces
 shallow, barely-drafted output, since an LLM asked to reproduce a whole
 page's markup spends its effort on tag-correctness instead of composing
 real copy. Reverted to plain text + a code-side renderer.
+
+As of design-system.md v2.4, this split is pushed one step further:
+"This Month's Programs" and the optional "Bonus callout" section are no
+longer drafted by Stylus at all (``programs_paragraph`` removed from
+``DRAFT_METADATA_FIELDS`` entirely) — they're structured facts the curator
+already supplied in full (a program name + date, a translation), so they
+pass straight from intake through to ``template.py``'s deterministic list
+renderer, the same way the CTA URL/button label/photo already did. Only
+genuine prose composition (the three remaining paragraph fields) goes
+through Stylus/the LLM.
 """
 
 from __future__ import annotations
@@ -44,7 +54,7 @@ _REVIEW_URL_COMMENT_RE = re.compile(r"Review page:\s*(\S+)")
 DRAFT_METADATA_FIELDS = (
     "subject_line", "preview_text", "eyebrow_label", "hero_headline",
     "bhante_advice_paragraph", "recap_paragraph",
-    "featured_announcement_paragraph", "programs_paragraph",
+    "featured_announcement_paragraph",
 )
 
 
@@ -82,7 +92,13 @@ class KanbanOps:
 
 def _wrap_untrusted(intake: dict[str, Any]) -> str:
     """Same defensive framing as event_post_pipeline's task bodies: fields
-    from a form submission must never be read as instructions by Stylus."""
+    from a form submission must never be read as instructions by Stylus.
+
+    Deliberately omits programs/bonus-callout data — as of design-system.md
+    v2.4 Stylus never drafts those sections (they render straight from
+    intake via template.py), so there's nothing for Stylus to compose from
+    them; leaving them out of the task body keeps the drafting prompt
+    focused on what Stylus actually needs to write."""
     lines = [
         "<untrusted_submission>",
         f"Issue month: {intake.get('issueMonth', '')}",
@@ -93,7 +109,6 @@ def _wrap_untrusted(intake: dict[str, Any]) -> str:
         f"Featured announcement text: {intake.get('featuredAnnouncementText', '')}",
         f"Featured CTA label: {intake.get('featuredCtaLabel', '')}",
         f"Featured CTA url: {intake.get('featuredCtaUrl', '')}",
-        f"Programs summary: {intake.get('programsSummary', '')}",
         f"Curator-suggested subject line: {intake.get('subjectLine', '')}",
         f"Curator-suggested preview text: {intake.get('previewText', '')}",
         "</untrusted_submission>",
@@ -235,7 +250,8 @@ def handle_intake(
             "featured_announcement_text": intake.get("featuredAnnouncementText"),
             "featured_cta_label": intake.get("featuredCtaLabel"),
             "featured_cta_url": intake.get("featuredCtaUrl"),
-            "programs_summary": intake.get("programsSummary"),
+            "programs_list": intake.get("programsList") or [],
+            "bonus_callout": intake.get("bonusCallout"),
             "subject_line": intake.get("subjectLine"),
             "preview_text": intake.get("previewText"),
             "images": intake.get("images") or [],
@@ -284,12 +300,17 @@ def _draft_payload(metadata: dict[str, Any], record: dict[str, Any]) -> dict[str
         metadata["featured_announcement_paragraph"],
         record.get("featured_cta_label", ""), record.get("featured_cta_url", ""),
     )
-    programs_html = template.programs_section_html(metadata["programs_paragraph"])
+    programs_html = template.programs_section_html(record.get("programs_list") or [])
+    bonus_callout = record.get("bonus_callout") or {}
+    bonus_callout_html = template.bonus_callout_section_html(
+        bonus_callout.get("heading"), bonus_callout.get("items"), bonus_callout.get("text"),
+    )
     assembled_html = template.render_newsletter_html(
         subject_line=metadata["subject_line"], preview_text=metadata["preview_text"],
         eyebrow_label=metadata["eyebrow_label"], hero_headline=metadata["hero_headline"],
         bhante_advice_html=bhante_advice_html, recap_html=recap_html,
         featured_announcement_html=featured_announcement_html, programs_html=programs_html,
+        bonus_callout_html=bonus_callout_html,
     )
     return {
         "subjectLine": metadata["subject_line"],
@@ -298,6 +319,7 @@ def _draft_payload(metadata: dict[str, Any], record: dict[str, Any]) -> dict[str
         "recapHtml": recap_html,
         "featuredAnnouncementHtml": featured_announcement_html,
         "programsHtml": programs_html,
+        "bonusCalloutHtml": bonus_callout_html,
         "assembledHtml": assembled_html,
     }
 
@@ -330,7 +352,8 @@ def _handle_first_round_completion(conn, ops, store, review_config, task, metada
             recap_summary=record.get("recap_summary", ""), recap_image=record.get("recap_image"),
             featured_announcement_text=record.get("featured_announcement_text", ""),
             featured_cta_label=record.get("featured_cta_label", ""), featured_cta_url=record.get("featured_cta_url", ""),
-            programs_summary=record.get("programs_summary", ""), images=record.get("images", []),
+            programs_list=record.get("programs_list") or [], bonus_callout=record.get("bonus_callout"),
+            images=record.get("images", []),
             draft=draft,
             submitter_name=record.get("submitter_name"), submitter_phone=record.get("submitter_phone"),
         )
@@ -480,7 +503,6 @@ def _refine_task_body(*, record: dict[str, Any], previous_metadata: dict[str, An
             f"Bhante's advice text: {record.get('bhante_advice_text', '')}",
             f"Recap summary: {record.get('recap_summary', '')}",
             f"Featured announcement text: {record.get('featured_announcement_text', '')}",
-            f"Programs summary: {record.get('programs_summary', '')}",
             "</untrusted_submission>",
             "Previous draft:\n" + "\n".join(f"{k}: {v}" for k, v in previous_metadata.items()),
             f"Requested change (reviewer's own words):\n{comment}",
