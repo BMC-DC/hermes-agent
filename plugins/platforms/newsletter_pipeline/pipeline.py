@@ -5,10 +5,19 @@ and a refine round redrafts the whole issue rather than one platform at a
 time (a newsletter has no independent "platforms" to refine separately).
 
 Every function here is plain, synchronous, testable Python — no LLM call.
-Stylus must produce the structured ``kanban_complete(metadata={
-"subject_line", "preview_text", "bhante_advice_html", "recap_html",
-"featured_announcement_html", "programs_html"})`` contract — see
+Stylus produces **plain text only** — ``kanban_complete(metadata={
+"subject_line", "preview_text", "eyebrow_label", "hero_headline",
+"bhante_advice_paragraph", "recap_paragraph",
+"featured_announcement_paragraph", "programs_paragraph"})`` — see
 ``/home/bmc/.hermes/profiles/stylus/SOUL.md``'s newsletter section.
+``template.py`` (not Stylus) turns that plain text into HTML; this is the
+same "Stylus writes words, code does layout" split the FB/IG/blog flow
+already uses. An earlier version of this contract had Stylus produce
+``assembled_html`` itself — found the hard way (2026-09-24, the first real
+newsletter run) that this both violates deterministic-first and produces
+shallow, barely-drafted output, since an LLM asked to reproduce a whole
+page's markup spends its effort on tag-correctness instead of composing
+real copy. Reverted to plain text + a code-side renderer.
 """
 
 from __future__ import annotations
@@ -18,7 +27,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from plugins.platforms.newsletter_pipeline import brevo_client, db
+from plugins.platforms.newsletter_pipeline import brevo_client, db, template
 from plugins.platforms.newsletter_pipeline.brevo_client import BrevoClientError, BrevoConfig
 from plugins.platforms.newsletter_pipeline.review_client import (
     ReviewClientConfig, ReviewClientError, create_review, record_send, slug_from_review_url, update_review,
@@ -33,8 +42,9 @@ _REFINE_IDEMPOTENCY_RE = re.compile(r"^(?P<root>.+)-r(?P<round>\d+)$")
 _REVIEW_URL_COMMENT_RE = re.compile(r"Review page:\s*(\S+)")
 
 DRAFT_METADATA_FIELDS = (
-    "subject_line", "preview_text", "bhante_advice_html", "recap_html",
-    "featured_announcement_html", "programs_html", "assembled_html",
+    "subject_line", "preview_text", "eyebrow_label", "hero_headline",
+    "bhante_advice_paragraph", "recap_paragraph",
+    "featured_announcement_paragraph", "programs_paragraph",
 )
 
 
@@ -262,15 +272,33 @@ def _extract_stylus_metadata(run) -> dict[str, Any]:
     return metadata
 
 
-def _draft_payload(metadata: dict[str, Any]) -> dict[str, Any]:
+def _draft_payload(metadata: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
+    """Renders Stylus's plain-text drafts into HTML via template.py — the
+    deterministic assembly step. ``record`` (the stored intake fields) is
+    where the quote/image/CTA URL come from; Stylus never re-states them."""
+    bhante_advice_html = template.bhante_advice_section_html(
+        metadata["bhante_advice_paragraph"], record.get("bhante_advice_quote"),
+    )
+    recap_html = template.recap_section_html(metadata["recap_paragraph"], record.get("recap_image"))
+    featured_announcement_html = template.featured_announcement_section_html(
+        metadata["featured_announcement_paragraph"],
+        record.get("featured_cta_label", ""), record.get("featured_cta_url", ""),
+    )
+    programs_html = template.programs_section_html(metadata["programs_paragraph"])
+    assembled_html = template.render_newsletter_html(
+        subject_line=metadata["subject_line"], preview_text=metadata["preview_text"],
+        eyebrow_label=metadata["eyebrow_label"], hero_headline=metadata["hero_headline"],
+        bhante_advice_html=bhante_advice_html, recap_html=recap_html,
+        featured_announcement_html=featured_announcement_html, programs_html=programs_html,
+    )
     return {
         "subjectLine": metadata["subject_line"],
         "previewText": metadata["preview_text"],
-        "bhanteAdviceHtml": metadata["bhante_advice_html"],
-        "recapHtml": metadata["recap_html"],
-        "featuredAnnouncementHtml": metadata["featured_announcement_html"],
-        "programsHtml": metadata["programs_html"],
-        "assembledHtml": metadata["assembled_html"],
+        "bhanteAdviceHtml": bhante_advice_html,
+        "recapHtml": recap_html,
+        "featuredAnnouncementHtml": featured_announcement_html,
+        "programsHtml": programs_html,
+        "assembledHtml": assembled_html,
     }
 
 
@@ -294,6 +322,7 @@ def handle_stylus_completion(
 def _handle_first_round_completion(conn, ops, store, review_config, task, metadata: dict[str, Any], database_url: Optional[str] = None) -> dict[str, Any]:
     record = store.get_issue(task.idempotency_key) or {}
     issue_month = record.get("issue_month", task.idempotency_key)
+    draft = _draft_payload(metadata, record)
     try:
         review_url = create_review(
             review_config, task_id=task.id, issue_month=record.get("issue_month", ""),
@@ -302,7 +331,7 @@ def _handle_first_round_completion(conn, ops, store, review_config, task, metada
             featured_announcement_text=record.get("featured_announcement_text", ""),
             featured_cta_label=record.get("featured_cta_label", ""), featured_cta_url=record.get("featured_cta_url", ""),
             programs_summary=record.get("programs_summary", ""), images=record.get("images", []),
-            draft=_draft_payload(metadata),
+            draft=draft,
             submitter_name=record.get("submitter_name"), submitter_phone=record.get("submitter_phone"),
         )
     except ReviewClientError as exc:
@@ -311,7 +340,7 @@ def _handle_first_round_completion(conn, ops, store, review_config, task, metada
     # latest_draft is read back by handle_review_action's approve path to
     # send via Brevo -- Hermes never re-fetches drafted content from the
     # portal, it's the same payload just POSTed to create_review above.
-    store.upsert_issue(task.idempotency_key, {"review_url": review_url, "latest_draft": _draft_payload(metadata)})
+    store.upsert_issue(task.idempotency_key, {"review_url": review_url, "latest_draft": draft})
     _track_run(
         database_url, task.id, title=issue_month, state="waiting", current_step="awaiting_review",
         step="stylus_done", status="ok", detail=review_url,
@@ -321,19 +350,20 @@ def _handle_first_round_completion(conn, ops, store, review_config, task, metada
 
 
 def _handle_refine_completion(conn, ops, store, review_config, task, metadata: dict[str, Any], database_url: Optional[str] = None) -> dict[str, Any]:
-    record = _record_for_task(conn, ops, store, task)
-    review_url = (record or {}).get("review_url")
+    record = _record_for_task(conn, ops, store, task) or {}
+    review_url = record.get("review_url")
     if not review_url:
         raise PipelineError(f"could not recover the review-page URL for refine task {task.id}")
     slug = slug_from_review_url(review_url)
+    draft = _draft_payload(metadata, record)
     try:
-        update_review(review_config, slug=slug, draft=_draft_payload(metadata))
+        update_review(review_config, slug=slug, draft=draft)
     except ReviewClientError as exc:
         raise PipelineError(str(exc)) from exc
-    root_task_id = (record or {}).get("root_task_id") or task.idempotency_key.rsplit("-", 1)[0]
-    store.upsert_issue(root_task_id, {"round_task_id": task.id, "latest_draft": _draft_payload(metadata)})
+    root_task_id = record.get("root_task_id") or task.idempotency_key.rsplit("-", 1)[0]
+    store.upsert_issue(root_task_id, {"round_task_id": task.id, "latest_draft": draft})
     _track_run(
-        database_url, root_task_id, title=(record or {}).get("issue_month", root_task_id), state="waiting",
+        database_url, root_task_id, title=record.get("issue_month", root_task_id), state="waiting",
         current_step="awaiting_review", step="stylus_done", status="ok", detail=review_url,
     )
     _link_issue_if_resolvable(database_url, root_task_id, review_url)
