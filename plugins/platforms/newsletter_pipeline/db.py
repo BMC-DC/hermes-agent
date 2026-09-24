@@ -1,20 +1,19 @@
-"""Postgres client for the newsletter pipeline's curator resolution.
+"""Postgres client for the newsletter pipeline's curator resolution and
+pipeline-visualizer tracking.
 
-Scope, deliberately narrower than ``event_post_pipeline.db`` for this v1: only
-``social_media_curators`` upsert/lookup (the same table, same identity
-mechanism — a newsletter curator and an event-post curator are the same
-person pool). Newsletter issue/draft rows are created and updated exclusively
-through ``review_client.py``'s HTTP contract with social-post-portal, never
-written here — social-post-portal owns that side of the same Postgres
-instance.
-
-Deliberately NOT here (see newsletter-pipeline-plan.md's "Open items"):
-pipeline_runs/pipeline_events visualizer tracking. event_post_pipeline's
-pipeline_runs.submission_id has a hard FK to post_submissions, which a
-newsletter issue is not a row of — wiring newsletter issues into that same
-visualizer table is a real design decision (a new nullable/polymorphic
-column, or a parallel table) deferred to a later pass rather than bolted on
-here.
+Scope: ``social_media_curators`` upsert/lookup (the same table, same
+identity mechanism as event_post_pipeline — a newsletter curator and an
+event-post curator are the same person pool), plus writes to
+``pipeline_runs``/``pipeline_events`` (the same visualizer tables
+event_post_pipeline uses — see
+extra/plans/newsletter/migrations/0002_newsletter_visualizer.sql, which
+added a ``newsletter_issue_id`` column alongside the existing
+``submission_id`` since a newsletter issue is not a row of
+``post_submissions``). Newsletter issue/draft rows themselves are still
+created and updated exclusively through ``review_client.py``'s HTTP
+contract with social-post-portal, never written here — social-post-portal
+owns that side of the same Postgres instance, same ownership boundary
+event_post_pipeline.db documents for pipeline_runs/pipeline_events.
 
 Driver: ``psycopg2`` (sync), imported lazily — same convention as
 ``event_post_pipeline.db``.
@@ -104,3 +103,57 @@ def upsert_curator(
             {"phone": phone_number, "name": name, "is_publisher": is_publisher, "is_reviewer": is_reviewer},
         )
         return _row_to_dict(cur.fetchone())
+
+
+# --- pipeline_runs / pipeline_events: visualizer tracking --------------------------------
+#
+# Ownership boundary (mirrors event_post_pipeline.db's docstring): this plugin only ever
+# INSERTs/UPSERTs into these two tables — it never deletes rows and never sets state='done'.
+# Marking a run fully complete is social-post-portal's job (lib/pipeline-runs.ts's
+# retireCompletedRun), since only it knows when the newsletter issue has reached a terminal
+# status. pipeline_events has a FK to pipeline_runs.task_id, so every record_pipeline_event
+# call site must have already called upsert_pipeline_run for that task_id.
+
+
+def upsert_pipeline_run(conn, task_id: str, *, title: str, state: str, current_step: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO pipeline_runs (task_id, title, state, current_step)
+            VALUES (%(task_id)s, %(title)s, %(state)s, %(current_step)s)
+            ON CONFLICT (task_id) DO UPDATE SET
+                title = EXCLUDED.title,
+                state = EXCLUDED.state,
+                current_step = EXCLUDED.current_step,
+                updated_at = now()
+            """,
+            {"task_id": task_id, "title": title, "state": state, "current_step": current_step},
+        )
+
+
+def record_pipeline_event(
+    conn, task_id: str, step: str, status: str, *, detail: Optional[str] = None, actor: Optional[str] = None,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO pipeline_events (task_id, step, status, detail, actor) VALUES (%s, %s, %s, %s, %s)",
+            (task_id, step, status, detail, actor),
+        )
+
+
+def get_newsletter_issue_id_by_slug(conn, slug: str) -> Optional[int]:
+    """Used only to backfill ``pipeline_runs.newsletter_issue_id`` once
+    social-post-portal's own ``newsletter_issues`` row exists (it doesn't yet
+    at intake time — mirrors event_post_pipeline.db.get_submission_id_by_slug)."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM newsletter_issues WHERE slug = %s", (slug,))
+        row = cur.fetchone()
+        return row["id"] if row else None
+
+
+def link_newsletter_issue_id(conn, task_id: str, newsletter_issue_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE pipeline_runs SET newsletter_issue_id = %s WHERE task_id = %s",
+            (newsletter_issue_id, task_id),
+        )

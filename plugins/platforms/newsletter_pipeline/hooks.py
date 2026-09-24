@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from plugins.platforms.newsletter_pipeline import pipeline, security, whatsapp_notify
+from plugins.platforms.newsletter_pipeline import db, pipeline, security, whatsapp_notify
 from plugins.platforms.newsletter_pipeline.review_client import ReviewClientConfig
 from plugins.platforms.newsletter_pipeline.root_config import load_pipeline_extra as _load_pipeline_extra
 from plugins.platforms.newsletter_pipeline.store import NewsletterPipelineStore, resolve_store_path
@@ -24,6 +24,7 @@ def on_kanban_task_completed(*, task_id: str, **_kwargs: Any) -> None:
     if not extra:
         return  # plugin not configured in this profile — nothing to react to
     board: Optional[str] = extra.get("board")
+    db_url = db.resolve_database_url(extra)
     review_config = ReviewClientConfig(
         base_url=str(extra.get("review_base_url", "https://spp.buddhameditationdc.org")).rstrip("/"),
         create_secret=security.resolve_review_create_secret(extra),
@@ -37,7 +38,7 @@ def on_kanban_task_completed(*, task_id: str, **_kwargs: Any) -> None:
     try:
         ops = pipeline.KanbanOps(kb)
         try:
-            result = pipeline.handle_stylus_completion(conn, ops, store, review_config, task_id)
+            result = pipeline.handle_stylus_completion(conn, ops, store, review_config, task_id, database_url=db_url)
         except pipeline.PipelineError as exc:
             logger.error("[newsletter_pipeline] task_completed handling failed for task=%s: %s", task_id, exc)
             ops.add_comment(conn, task_id, pipeline.CREATED_BY,
@@ -52,6 +53,8 @@ def on_kanban_task_completed(*, task_id: str, **_kwargs: Any) -> None:
     if not message:
         return
 
+    track_task_id = result.get("root_task_id") or result["task_id"]
+
     try:
         _run_async(lambda: whatsapp_notify.send_whatsapp_link(message))
     except Exception:
@@ -60,18 +63,22 @@ def on_kanban_task_completed(*, task_id: str, **_kwargs: Any) -> None:
             "otherwise be silently swallowed at DEBUG level by "
             "hermes_cli.kanban_db._fire_kanban_lifecycle_hook", task_id, result,
         )
+        pipeline.track_notification(db_url, track_task_id, ok=False, message=message)
+        return
+    pipeline.track_notification(db_url, track_task_id, ok=True, message=message)
 
 
 def on_kanban_task_blocked(*, task_id: str, assignee: Optional[str] = None, reason: Optional[str] = None, **_kwargs: Any) -> None:
     """Registered for ``kanban_task_blocked`` — mirrors
-    ``event_post_pipeline.hooks.on_kanban_task_blocked`` (visualizer tracking
-    omitted here per db.py's documented v1 scope cut; the WhatsApp alert is
-    kept since a stuck Stylus task otherwise tells nobody anything)."""
+    ``event_post_pipeline.hooks.on_kanban_task_blocked``, including visualizer
+    tracking (wired up alongside pipeline_runs.newsletter_issue_id — see
+    extra/plans/newsletter/migrations/0002_newsletter_visualizer.sql)."""
     if assignee != "stylus":
         return
     extra = _load_pipeline_extra()
     if not extra:
         return
+    db_url = db.resolve_database_url(extra)
 
     from hermes_cli import kanban_db as kb
     from hermes_cli import kanban_db_connect as kbc
@@ -84,8 +91,13 @@ def on_kanban_task_blocked(*, task_id: str, assignee: Optional[str] = None, reas
     if task is None or task.tenant != pipeline.TENANT:
         return
 
+    root_task_id = pipeline.root_task_id_for_idempotency_key(task.idempotency_key) or task_id
     try:
-        review_base_url = str(extra.get("review_base_url", "https://spp.buddhameditationdc.org")).rstrip("/")
+        pipeline.track_stylus_blocked(db_url, root_task_id, title=task.title, reason=reason)
+    except Exception:
+        logger.exception("[newsletter_pipeline] visualizer blocked-tracking failed for task=%s", task_id)
+
+    try:
         alert = f"⚠️ Stylus got stuck on \"{task.title}\": {reason or 'no reason given'}. Task id: {task_id}"
         _run_async(lambda: whatsapp_notify.send_whatsapp_link(alert))
     except Exception:

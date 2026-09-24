@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from plugins.platforms.newsletter_pipeline import db
 from plugins.platforms.newsletter_pipeline.review_client import (
     ReviewClientConfig, ReviewClientError, create_review, slug_from_review_url, update_review,
 )
@@ -89,14 +90,127 @@ def _wrap_untrusted(intake: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# --- Pipeline visualizer tracking ---------------------------------------------------------
+#
+# Best-effort only, mirrors event_post_pipeline.pipeline's own rule: a visualizer-tracking
+# failure must never break the actual pipeline. Every helper below swallows its own errors
+# (after logging) and is a silent no-op when no Postgres is configured for this profile.
+
+
+def _resolve_visualizer_db_url(database_url: Optional[str]) -> str:
+    return database_url if database_url is not None else db.resolve_database_url()
+
+
+def _track_run(
+    database_url: Optional[str], task_id: str, *, title: str, state: str, current_step: str,
+    step: str, status: str, detail: Optional[str] = None, actor: Optional[str] = None,
+) -> None:
+    url = _resolve_visualizer_db_url(database_url)
+    if not url:
+        return
+    try:
+        conn = db.get_connection(url)
+    except db.DatabaseError:
+        logger.debug("newsletter_pipeline: visualizer tracking skipped (no Postgres) for task=%s step=%s", task_id, step)
+        return
+    try:
+        db.upsert_pipeline_run(conn, task_id, title=title, state=state, current_step=current_step)
+        db.record_pipeline_event(conn, task_id, step, status, detail=detail, actor=actor)
+    except Exception:
+        logger.exception("newsletter_pipeline: visualizer tracking failed for task=%s step=%s", task_id, step)
+    finally:
+        conn.close()
+
+
+def _track_event_only(
+    database_url: Optional[str], task_id: str, step: str, status: str, *,
+    detail: Optional[str] = None, actor: Optional[str] = None,
+) -> None:
+    url = _resolve_visualizer_db_url(database_url)
+    if not url:
+        return
+    try:
+        conn = db.get_connection(url)
+    except db.DatabaseError:
+        logger.debug("newsletter_pipeline: visualizer tracking skipped (no Postgres) for task=%s step=%s", task_id, step)
+        return
+    try:
+        db.record_pipeline_event(conn, task_id, step, status, detail=detail, actor=actor)
+    except Exception:
+        logger.exception("newsletter_pipeline: visualizer event tracking failed for task=%s step=%s", task_id, step)
+    finally:
+        conn.close()
+
+
+def _link_issue_if_resolvable(database_url: Optional[str], task_id: str, review_url: str) -> None:
+    """Best-effort backfill of ``pipeline_runs.newsletter_issue_id`` once
+    social-post-portal's own row exists (resolved via the review-page slug)."""
+    url = _resolve_visualizer_db_url(database_url)
+    if not url:
+        return
+    try:
+        slug = slug_from_review_url(review_url)
+    except Exception:
+        return
+    try:
+        conn = db.get_connection(url)
+    except db.DatabaseError:
+        return
+    try:
+        issue_id = db.get_newsletter_issue_id_by_slug(conn, slug)
+        if issue_id is not None:
+            db.link_newsletter_issue_id(conn, task_id, issue_id)
+    except Exception:
+        logger.exception("newsletter_pipeline: visualizer issue-id link failed for task=%s", task_id)
+    finally:
+        conn.close()
+
+
+def root_task_id_for_idempotency_key(idempotency_key: Optional[str]) -> Optional[str]:
+    """The root Stylus task id for a (possibly refine-round) idempotency key — public so
+    ``hooks.py``'s ``kanban_task_blocked`` callback can resolve the ``pipeline_runs`` key
+    for a blocked refine-round task."""
+    match = _REFINE_IDEMPOTENCY_RE.match(idempotency_key or "")
+    return match.group("root") if match else None
+
+
+def track_stylus_blocked(database_url: Optional[str], task_id: str, *, title: str, reason: Optional[str]) -> None:
+    _track_run(
+        database_url, task_id, title=title, state="blocked", current_step="stylus_blocked",
+        step="stylus_blocked", status="error", detail=reason,
+    )
+
+
+def track_notification(database_url: Optional[str], task_id: str, *, ok: bool, message: str) -> None:
+    """``message`` is always the actual notification text (attempted or sent), never the
+    exception — see event_post_pipeline.pipeline.track_notification's docstring for why
+    that distinction matters (the visualizer's own "Retry notify" button reads it back)."""
+    step = "notified" if ok else "notify_failed"
+    status = "ok" if ok else "error"
+    _track_event_only(database_url, task_id, step, status, detail=message)
+
+
+def track_stylus_retry_requested(database_url: Optional[str], task_id: str, *, ok: bool, detail: Optional[str] = None) -> None:
+    _track_event_only(database_url, task_id, "stylus_retry_requested", "ok" if ok else "error", detail=detail)
+
+
 def handle_intake(
     conn, ops: KanbanOps, store: NewsletterPipelineStore, *, submission_id: str, intake: dict[str, Any],
+    database_url: Optional[str] = None,
 ) -> str:
     """Creates the Stylus handoff for a new newsletter issue. Returns the new task id."""
     issue_month = str(intake.get("issueMonth") or submission_id)
     task_id = ops.create_task(
         conn, title=f"Draft newsletter: {issue_month}", body=_wrap_untrusted(intake),
         assignee="stylus", idempotency_key=submission_id, tenant=TENANT, created_by=CREATED_BY,
+    )
+    _track_run(
+        database_url, task_id, title=issue_month, state="running", current_step="intake_received",
+        step="intake_received", status="ok",
+    )
+    _track_run(
+        database_url, task_id, title=issue_month, state="running", current_step="stylus_drafting",
+        step="stylus_drafting", status="ok",
     )
     store.upsert_issue(
         submission_id,
@@ -161,6 +275,7 @@ def _draft_payload(metadata: dict[str, Any]) -> dict[str, Any]:
 
 def handle_stylus_completion(
     conn, ops: KanbanOps, store: NewsletterPipelineStore, review_config: ReviewClientConfig, task_id: str,
+    database_url: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     """The ``kanban_task_completed`` hook callback's core logic. Returns a
     dict describing what happened, or ``None`` when this completion isn't ours."""
@@ -171,12 +286,13 @@ def handle_stylus_completion(
     metadata = _extract_stylus_metadata(run)
     refine = _REFINE_IDEMPOTENCY_RE.match(task.idempotency_key or "")
     if refine:
-        return _handle_refine_completion(conn, ops, store, review_config, task, metadata)
-    return _handle_first_round_completion(conn, ops, store, review_config, task, metadata)
+        return _handle_refine_completion(conn, ops, store, review_config, task, metadata, database_url)
+    return _handle_first_round_completion(conn, ops, store, review_config, task, metadata, database_url)
 
 
-def _handle_first_round_completion(conn, ops, store, review_config, task, metadata: dict[str, Any]) -> dict[str, Any]:
+def _handle_first_round_completion(conn, ops, store, review_config, task, metadata: dict[str, Any], database_url: Optional[str] = None) -> dict[str, Any]:
     record = store.get_issue(task.idempotency_key) or {}
+    issue_month = record.get("issue_month", task.idempotency_key)
     try:
         review_url = create_review(
             review_config, task_id=task.id, issue_month=record.get("issue_month", ""),
@@ -192,10 +308,15 @@ def _handle_first_round_completion(conn, ops, store, review_config, task, metada
         raise PipelineError(str(exc)) from exc
     ops.add_comment(conn, task.id, CREATED_BY, f"Review page: {review_url}")
     store.upsert_issue(task.idempotency_key, {"review_url": review_url})
+    _track_run(
+        database_url, task.id, title=issue_month, state="waiting", current_step="awaiting_review",
+        step="stylus_done", status="ok", detail=review_url,
+    )
+    _link_issue_if_resolvable(database_url, task.id, review_url)
     return {"action": "created_review_page", "task_id": task.id, "root_task_id": task.id, "review_url": review_url}
 
 
-def _handle_refine_completion(conn, ops, store, review_config, task, metadata: dict[str, Any]) -> dict[str, Any]:
+def _handle_refine_completion(conn, ops, store, review_config, task, metadata: dict[str, Any], database_url: Optional[str] = None) -> dict[str, Any]:
     record = _record_for_task(conn, ops, store, task)
     review_url = (record or {}).get("review_url")
     if not review_url:
@@ -207,6 +328,11 @@ def _handle_refine_completion(conn, ops, store, review_config, task, metadata: d
         raise PipelineError(str(exc)) from exc
     root_task_id = (record or {}).get("root_task_id") or task.idempotency_key.rsplit("-", 1)[0]
     store.upsert_issue(root_task_id, {"round_task_id": task.id})
+    _track_run(
+        database_url, root_task_id, title=(record or {}).get("issue_month", root_task_id), state="waiting",
+        current_step="awaiting_review", step="stylus_done", status="ok", detail=review_url,
+    )
+    _link_issue_if_resolvable(database_url, root_task_id, review_url)
     return {"action": "updated_review_page", "task_id": task.id, "root_task_id": root_task_id, "review_url": review_url}
 
 
@@ -226,6 +352,7 @@ def _round_tasks(conn, ops: KanbanOps, root_task_id: str) -> list:
 
 def handle_review_action(
     conn, ops: KanbanOps, store: NewsletterPipelineStore, *, task_id: str, action: str, comment: str,
+    database_url: Optional[str] = None,
 ) -> dict[str, Any]:
     """A review-page button click. ``task_id`` is always the *root* Stylus task."""
     root_task = ops.get_task(conn, task_id)
@@ -235,6 +362,10 @@ def handle_review_action(
     if action in ("approved", "rejected"):
         outcome_line = f"Newsletter {action.upper()} via review page: {comment}" if comment else f"Newsletter {action.upper()} via review page"
         ops.add_comment(conn, root_task.id, CREATED_BY, outcome_line)
+        # Deliberately does NOT touch pipeline_runs' state/current_step: social-post-portal
+        # owns deciding when a newsletter issue is fully done (same ownership boundary as
+        # event_post_pipeline) — this is only the timeline event.
+        _track_event_only(database_url, task_id, "action_taken", "ok", detail=action)
         return {"action": action, "task_id": root_task.id}
 
     if action == "refine":
@@ -248,6 +379,10 @@ def handle_review_action(
             body=body, assignee="stylus", idempotency_key=idempotency_key, tenant=TENANT, created_by=CREATED_BY,
         )
         store.upsert_issue(task_id, {"round_task_id": new_task_id})
+        _track_run(
+            database_url, task_id, title=record.get("issue_month", task_id), state="running",
+            current_step="refine_drafting", step="refine_dispatched", status="ok", detail=f"round {next_round}",
+        )
         return {"action": "refine_dispatched", "task_id": new_task_id, "round": next_round}
 
     raise PipelineError(f"unknown review action {action!r}")

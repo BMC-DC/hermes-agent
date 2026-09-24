@@ -142,6 +142,9 @@ class NewsletterPipelineAdapter(BasePlatformAdapter):
             await whatsapp_notify.send_whatsapp_link(message)
         except Exception:
             logger.exception("[newsletter_pipeline] intake notify send failed for task=%s", task_id)
+            await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=False, message=message)
+            return
+        await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=True, message=message)
 
     def _upsert_submitter_curator(self, submitter_phone: str, submitter_name: str) -> None:
         conn = db.get_connection(self._db_url)
@@ -157,7 +160,9 @@ class NewsletterPipelineAdapter(BasePlatformAdapter):
         conn = kbc.connect(board=self._board)
         try:
             ops = pipeline.KanbanOps(kb)
-            return pipeline.handle_intake(conn, ops, self._store, submission_id=submission_id, intake=payload)
+            return pipeline.handle_intake(
+                conn, ops, self._store, submission_id=submission_id, intake=payload, database_url=self._db_url,
+            )
         finally:
             conn.close()
 
@@ -185,6 +190,9 @@ class NewsletterPipelineAdapter(BasePlatformAdapter):
             await whatsapp_notify.send_whatsapp_link(message)
         except whatsapp_notify.WhatsAppNotifyError as exc:
             logger.error("[newsletter_pipeline] review-action notify send failed: %s", exc)
+            await asyncio.to_thread(pipeline.track_notification, self._db_url, action.task_id, ok=False, message=message)
+            return
+        await asyncio.to_thread(pipeline.track_notification, self._db_url, action.task_id, ok=True, message=message)
 
     def _run_review_action(self, action: models.ReviewActionPayload) -> dict:
         from hermes_cli import kanban_db as kb
@@ -195,6 +203,7 @@ class NewsletterPipelineAdapter(BasePlatformAdapter):
             ops = pipeline.KanbanOps(kb)
             return pipeline.handle_review_action(
                 conn, ops, self._store, task_id=action.task_id, action=action.action, comment=action.comment,
+                database_url=self._db_url,
             )
         finally:
             conn.close()
