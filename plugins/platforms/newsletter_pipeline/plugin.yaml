@@ -1,0 +1,30 @@
+name: newsletter_pipeline
+label: Newsletter Pipeline
+version: 0.1.0
+description: >
+  Deterministic-code glue for the monthly BMC email newsletter, modeled
+  directly on plugins/platforms/event_post_pipeline/: Kanban handoff to
+  Stylus, review-page create/update on social-post-portal, WhatsApp
+  lifecycle notifications. Stylus's drafting stays a normal agent turn;
+  everything else here runs as plain code with zero LLM cost. See
+  extra/plans/newsletter/newsletter-pipeline-plan.md in the VIDUOPS repo
+  for the full design.
+author: BMC-DC
+# Same "standalone" reasoning as event_post_pipeline/plugin.yaml: this
+# plugin's kanban_task_completed hook must register in every process that
+# might complete one of its tasks, including a bare Stylus worker
+# subprocess that never touches platform_registry at all.
+kind: standalone
+optional_env:
+  - name: NEWSLETTER_PIPELINE_WEBHOOK_SECRET
+    description: "HMAC secret for this plugin's /intake and /review-action routes (config.yaml platforms.newsletter_pipeline.extra.secret: ${NEWSLETTER_PIPELINE_WEBHOOK_SECRET})"
+    prompt: "Webhook HMAC secret"
+    password: true
+  - name: NEWSLETTER_REVIEW_CREATE_SECRET
+    description: "Shared bearer secret with social-post-portal's newsletter-review-page API"
+    prompt: "Newsletter review-page create secret"
+    password: true
+  - name: BREVO_API_KEY
+    description: "Brevo (Sendinblue) v3 API key — required only once the actual send step is wired up; the pipeline runs end-to-end without it, stopping at 'approved, ready to send'."
+    prompt: "Brevo API key"
+    password: true
