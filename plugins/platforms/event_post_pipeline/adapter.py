@@ -172,7 +172,12 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
         visualizer_link = f"{self._review_base_url}/visualizer?taskId={task_id}"
         message = f"New event post submission from {who} — drafting has started. Track it here: {visualizer_link}"
         try:
-            await whatsapp_notify.send_whatsapp_link(message)
+            # 2026-09-26: WhatsApp group no longer gets lifecycle/status updates now that
+            # the review portal is the primary interface — only review-link and
+            # review-reminder messages still go to the group. Left commented (not deleted)
+            # in case this needs reverting.
+            # await whatsapp_notify.send_whatsapp_link(message)
+            pass
         except Exception as exc:
             logger.exception("[event_post_pipeline] intake notify send failed for task=%s", task_id)
             await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=False, message=message)
@@ -237,7 +242,12 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
         if action.comment:
             message += f" Reviewer note: {action.comment}"
         try:
-            await whatsapp_notify.send_whatsapp_link(message)
+            # 2026-09-26: WhatsApp group no longer gets lifecycle/status updates now that
+            # the review portal is the primary interface — only review-link and
+            # review-reminder messages still go to the group. Left commented (not deleted)
+            # in case this needs reverting.
+            # await whatsapp_notify.send_whatsapp_link(message)
+            pass
         except whatsapp_notify.WhatsAppNotifyError as exc:
             logger.error("[event_post_pipeline] review-action notify send failed: %s", exc)
             await asyncio.to_thread(pipeline.track_notification, self._db_url, action.task_id, ok=False, message=message)
@@ -320,7 +330,12 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
 
     async def _retry_notify(self, task_id: str, message: str) -> "web.Response":
         try:
-            await whatsapp_notify.send_whatsapp_link(message)
+            # 2026-09-26: WhatsApp group no longer gets lifecycle/status updates (this is a
+            # manual re-fire of one of those messages) — only review-link and
+            # review-reminder messages still go to the group. Left commented (not deleted)
+            # in case this needs reverting.
+            # await whatsapp_notify.send_whatsapp_link(message)
+            pass
         except whatsapp_notify.WhatsAppNotifyError as exc:
             logger.error("[event_post_pipeline] retry notify send failed for task=%s: %s", task_id, exc)
             await asyncio.to_thread(pipeline.track_notification, self._db_url, task_id, ok=False, message=message)

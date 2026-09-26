@@ -131,7 +131,10 @@ def on_kanban_task_blocked(*, task_id: str, assignee: Optional[str] = None, reas
         review_base_url = str(extra.get("review_base_url", "https://spp.buddhameditationdc.org")).rstrip("/")
         link = f"{review_base_url}/visualizer?taskId={root_task_id}"
         alert = f"⚠️ Stylus got stuck on \"{task.title}\": {reason or 'no reason given'}. Continue here: {link}"
-        _run_async(lambda: whatsapp_notify.send_whatsapp_link(alert))
+        # 2026-09-26: WhatsApp group no longer gets lifecycle/status updates — only
+        # review-link and review-reminder messages still go to the group. Left commented
+        # (not deleted) in case this needs reverting.
+        # _run_async(lambda: whatsapp_notify.send_whatsapp_link(alert))
     except Exception:
         logger.exception("[event_post_pipeline] blocked-task alert send failed for task=%s", task_id)
 

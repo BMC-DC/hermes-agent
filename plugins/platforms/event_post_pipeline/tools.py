@@ -220,7 +220,12 @@ def social_post_retry_handler(args: dict, **_kwargs: Any) -> str:
         if not message:
             return tool_error("message is required when kind='notify'")
         try:
-            _run_async(lambda: whatsapp_notify.send_whatsapp_link(message))
+            # 2026-09-26: WhatsApp group no longer gets lifecycle/status updates (this is a
+            # manual re-fire of one of those messages) — only review-link and
+            # review-reminder messages still go to the group. Left commented (not deleted)
+            # in case this needs reverting.
+            # _run_async(lambda: whatsapp_notify.send_whatsapp_link(message))
+            pass
         except Exception as exc:
             logger.exception("event_post_pipeline: social_post_retry notify failed for task=%s", task_id)
             pipeline.track_notification(db_url, task_id, ok=False, message=message)

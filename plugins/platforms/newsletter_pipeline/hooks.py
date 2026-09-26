@@ -125,7 +125,10 @@ def _handle_task_blocked(*, task_id: str, reason: Optional[str]) -> None:
 
     link = f"{review_base_url}/visualizer?taskId={root_task_id}"
     alert = f"⚠️ Stylus got stuck on \"{task.title}\": {reason or 'no reason given'}. Continue here: {link}"
-    _run_async(lambda: whatsapp_notify.send_whatsapp_link(alert))
+    # 2026-09-26: WhatsApp group no longer gets lifecycle/status updates — only
+    # review-link and review-reminder messages still go to the group. Left commented
+    # (not deleted) in case this needs reverting.
+    # _run_async(lambda: whatsapp_notify.send_whatsapp_link(alert))
 
 
 def _run_async(coro_factory) -> None:
