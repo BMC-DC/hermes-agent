@@ -374,3 +374,47 @@ def list_recent_pipeline_runs(conn, *, limit: int = 10, query: Optional[str] = N
     with conn.cursor() as cur:
         cur.execute(sql, params)
         return [dict(row) for row in cur.fetchall()]
+
+
+DEFAULT_STALL_SECONDS = 20 * 60  # 20 minutes
+
+
+def find_stalled_runs(conn, *, stall_seconds: int = DEFAULT_STALL_SECONDS) -> list[dict[str, Any]]:
+    """Every non-terminal ``pipeline_runs`` row (either pipeline — this table is shared
+    between event_post_pipeline's ``submission_id`` rows and newsletter_pipeline's
+    ``newsletter_issue_id`` rows, per ``extra/plans/newsletter/migrations/0002_newsletter_visualizer.sql``)
+    whose last real activity is older than ``stall_seconds``.
+
+    "Last activity" is ``GREATEST(pipeline_runs.updated_at, MAX(pipeline_events.created_at))``
+    for that ``task_id`` — deliberately including any prior ``stall_alert`` event this same
+    watcher recorded, not just "real" lifecycle events. That is what gives the repeat-alert
+    behaviour its cadence for free: the first alert's own ``record_pipeline_event`` call
+    becomes the new "last activity", so the run isn't eligible again until another full
+    ``stall_seconds`` has passed — no separate "last alerted at" column or state needed. A
+    run that gets new real activity (unblocked, refined, etc.) naturally resets the clock
+    the same way, and a run that reaches ``state='done'`` naturally drops out of the
+    ``WHERE`` clause — this query alone is the entire "job starts/stops itself" mechanism
+    the pipeline-stall-watch cron script relies on."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH activity AS (
+                SELECT
+                    pr.task_id, pr.title, pr.state, pr.current_step,
+                    pr.submission_id, pr.newsletter_issue_id,
+                    GREATEST(pr.updated_at, COALESCE(le.last_event_at, pr.updated_at)) AS last_activity_at
+                FROM pipeline_runs pr
+                LEFT JOIN LATERAL (
+                    SELECT MAX(created_at) AS last_event_at
+                    FROM pipeline_events pe
+                    WHERE pe.task_id = pr.task_id
+                ) le ON true
+                WHERE pr.state <> 'done'
+            )
+            SELECT * FROM activity
+            WHERE last_activity_at < now() - (%s * interval '1 second')
+            ORDER BY last_activity_at ASC
+            """,
+            (int(stall_seconds),),
+        )
+        return [dict(row) for row in cur.fetchall()]
