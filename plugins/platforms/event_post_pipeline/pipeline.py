@@ -293,6 +293,20 @@ def _record_for_task(conn, ops: KanbanOps, store: EventPostPipelineStore, task) 
     return None
 
 
+def blog_shape_error(blog: Any) -> Optional[str]:
+    """``None`` if ``blog`` is a well-formed completion object, else a message
+    explaining the required shape — shared between the post-hoc check below
+    and ``pre_tool_call_guard.py``'s synchronous ``kanban_complete`` block, so
+    both sites enforce exactly the same contract."""
+    if isinstance(blog, dict) and blog.get("body"):
+        return None
+    return (
+        "metadata['blog'] must be an object with at least a non-empty 'body' string "
+        "(also expects 'seo_title', 'url_slug', 'focus_keyword', 'supporting_keywords', "
+        f"'meta_description') — got {type(blog).__name__}: {blog!r}"
+    )
+
+
 def _extract_stylus_metadata(run, *, platform: Optional[str] = None) -> dict[str, Any]:
     """``platform`` is the single platform a refine round asked Stylus to redraft (its
     task body explicitly says "Only the {PLATFORM} content needs to be redrafted — the
@@ -312,9 +326,8 @@ def _extract_stylus_metadata(run, *, platform: Optional[str] = None) -> dict[str
     required = (platform,) if platform else ("blog", "fb", "ig")
     for key in required:
         if key == "blog":
-            blog = metadata.get("blog")
-            if not isinstance(blog, dict) or not blog.get("body"):
-                raise PipelineError(f"Stylus completion metadata missing a well-formed 'blog' object: {metadata!r}")
+            if (err := blog_shape_error(metadata.get("blog"))) is not None:
+                raise PipelineError(f"Stylus completion {err}")
         elif not isinstance(metadata.get(key), str) or not metadata[key].strip():
             raise PipelineError(f"Stylus completion metadata missing required string field {key!r}: {metadata!r}")
     return metadata
