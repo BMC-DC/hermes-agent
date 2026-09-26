@@ -247,6 +247,7 @@ def handle_intake(
             "bhante_advice_quote": intake.get("bhanteAdviceQuote"),
             "recap_summary": intake.get("recapSummary"),
             "recap_image": intake.get("recapImage"),
+            "recap_link_url": intake.get("recapLinkUrl"),
             "featured_announcement_text": intake.get("featuredAnnouncementText"),
             "featured_cta_label": intake.get("featuredCtaLabel"),
             "featured_cta_url": intake.get("featuredCtaUrl"),
@@ -295,7 +296,9 @@ def _draft_payload(metadata: dict[str, Any], record: dict[str, Any]) -> dict[str
     bhante_advice_html = template.bhante_advice_section_html(
         metadata["bhante_advice_paragraph"], record.get("bhante_advice_quote"),
     )
-    recap_html = template.recap_section_html(metadata["recap_paragraph"], record.get("recap_image"))
+    recap_html = template.recap_section_html(
+        metadata["recap_paragraph"], record.get("recap_image"), link_url=record.get("recap_link_url"),
+    )
     featured_announcement_html = template.featured_announcement_section_html(
         metadata["featured_announcement_paragraph"],
         record.get("featured_cta_label", ""), record.get("featured_cta_url", ""),
@@ -350,6 +353,7 @@ def _handle_first_round_completion(conn, ops, store, review_config, task, metada
             review_config, task_id=task.id, issue_month=record.get("issue_month", ""),
             bhante_advice_text=record.get("bhante_advice_text", ""), bhante_advice_quote=record.get("bhante_advice_quote"),
             recap_summary=record.get("recap_summary", ""), recap_image=record.get("recap_image"),
+            recap_link_url=record.get("recap_link_url"),
             featured_announcement_text=record.get("featured_announcement_text", ""),
             featured_cta_label=record.get("featured_cta_label", ""), featured_cta_url=record.get("featured_cta_url", ""),
             programs_list=record.get("programs_list") or [], bonus_callout=record.get("bonus_callout"),

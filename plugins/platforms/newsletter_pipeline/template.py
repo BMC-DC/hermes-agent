@@ -374,12 +374,20 @@ def bhante_advice_section_html(paragraph: str, quote: Optional[str]) -> str:
     return html
 
 
-def recap_section_html(paragraph: str, image: Optional[dict[str, Any]]) -> str:
+def recap_section_html(
+    paragraph: str, image: Optional[dict[str, Any]], *, link_url: Optional[str] = None,
+) -> str:
+    """`link_url` is curator-supplied (never Stylus-authored) — a specific
+    blog post about this month's recap, when the curator has one. Falls
+    back to the generic blog index when not given, same as before this
+    parameter existed. Found the hard way (2026-09-26): with no per-issue
+    override, a curator's "point Read More at this specific post" request
+    had nowhere to land, silently reverted to the index on every refine."""
     html = _subtitle("Recently at BMC")
     if image and image.get("url"):
         alt = paragraph.strip().split(".")[0][:150] or "Photo from this month at Buddha Meditation Center"
         html += "\n" + _photo(image["url"], alt)
-    html += "\n" + _paragraphs(paragraph, color=MUTED) + "\n" + _secondary_button("Read More", BLOG_INDEX_URL)
+    html += "\n" + _paragraphs(paragraph, color=MUTED) + "\n" + _secondary_button("Read More", link_url or BLOG_INDEX_URL)
     return html
 
 
