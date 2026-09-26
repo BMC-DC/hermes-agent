@@ -276,21 +276,30 @@ def handle_intake(
 
 def _record_for_task(conn, ops: KanbanOps, store: EventPostPipelineStore, task) -> Optional[dict[str, Any]]:
     """The submission record owning ``task`` — from the store, or reconstructed from
-    Kanban's own comment history when the store is empty/stale (never the reverse)."""
+    Kanban's own comment history when the store is empty/stale, or when the store
+    record exists but is missing ``review_url`` (never the reverse).
+
+    Found the hard way (2026-09-26, live production, task t_9026ad85): a first-round
+    completion that fails before it ever reaches ``store.upsert_submission(...,
+    {"review_url": ...})`` (e.g. the blog-shape bug) leaves a real, non-None store
+    record with no ``review_url`` — the old "record is not None: return it" short
+    circuit then skipped the Kanban-comment fallback entirely, even after a human
+    manually posted "Review page: <url>" as a remediation comment on the root task."""
     refine = _REFINE_IDEMPOTENCY_RE.match(task.idempotency_key or "")
     root_task_id = refine.group("root") if refine else task.id
     record = store.find_by_task_id(root_task_id) or store.get_submission(root_task_id)
-    if record is not None:
+    if record is not None and record.get("review_url"):
         return record
-    # Store miss: reconstruct the minimum needed (review slug) from the root task's own
-    # comment history, exactly as the skill file this replaces already relies on.
+    # Store miss, or a store hit missing review_url: reconstruct the minimum needed
+    # (review slug) from the root task's own comment history, exactly as the skill
+    # file this replaces already relies on.
     root_task = ops.get_task(conn, root_task_id)
     if root_task is None:
-        return None
+        return record
     for comment in ops.list_comments(conn, root_task_id):
         if match := _REVIEW_URL_COMMENT_RE.search(comment.body):
-            return {"root_task_id": root_task_id, "review_url": match.group(1)}
-    return None
+            return {**(record or {}), "root_task_id": root_task_id, "review_url": match.group(1)}
+    return record
 
 
 def blog_shape_error(blog: Any) -> Optional[str]:
@@ -407,7 +416,13 @@ def _handle_refine_round_completion(
     except ReviewClientError as exc:
         raise PipelineError(str(exc)) from exc
     root_task_id = (record or {}).get("root_task_id") or task.idempotency_key.rsplit("-", 2)[0]
-    store.upsert_submission(root_task_id, {"rounds": {platform: {"task_id": task.id, "status": "pending"}}})
+    # The store's own dict key is submission_id (an intake-time slug), never root_task_id
+    # (a Kanban task id — a different identity space, per handle_intake()'s own upsert).
+    # Found the hard way alongside the review_url bug above: upserting by root_task_id
+    # here silently created a second, orphaned store record instead of updating the
+    # original submission's own "rounds" field.
+    store_key = (record or {}).get("submission_id") or root_task_id
+    store.upsert_submission(store_key, {"rounds": {platform: {"task_id": task.id, "status": "pending"}}})
     _track_run(
         database_url, root_task_id, title=_display_title(record, root_task_id), state="waiting",
         current_step="awaiting_review", step="stylus_done", status="ok", detail=review_url,
@@ -463,7 +478,15 @@ def handle_review_action(
         return {"action": action, "task_id": current_task.id, "platform": platform}
 
     if action == "refine":
-        record = store.get_submission(task_id) or {}
+        # ``task_id`` here is the Kanban root task id, never the store's own dict key
+        # (submission_id, an intake-time slug — a different identity space, per
+        # handle_intake()'s own upsert). Found the hard way alongside the review_url
+        # recovery bug (2026-09-26, task t_9026ad85): ``store.get_submission(task_id)``
+        # is a direct-key lookup that always misses here, and upserting "rounds" back
+        # onto that same wrong key silently created a second, orphaned store record on
+        # every single refine dispatch instead of updating the real submission.
+        record = store.find_by_task_id(task_id) or store.get_submission(task_id) or {}
+        store_key = record.get("submission_id") or task_id
         previous_draft = _previous_draft_text(ops.latest_run(conn, current_task.id), platform)
         next_round = len(_platform_round_tasks(conn, ops, task_id, platform)) + 1
         idempotency_key = f"{task_id}-{platform}-r{next_round}"
@@ -472,7 +495,7 @@ def handle_review_action(
             conn, title=f"Redraft {platform.upper()} (round {next_round}): {root_task.title.removeprefix('Draft social copy: ')}",
             body=body, assignee="stylus", idempotency_key=idempotency_key, tenant=TENANT, created_by=CREATED_BY,
         )
-        store.upsert_submission(task_id, {"rounds": {platform: {"task_id": new_task_id, "round": next_round, "status": "in_progress"}}})
+        store.upsert_submission(store_key, {"rounds": {platform: {"task_id": new_task_id, "round": next_round, "status": "in_progress"}}})
         _track_run(
             database_url, task_id, title=_display_title(record, root_task.title.removeprefix("Draft social copy: ")),
             state="running", current_step="refine_drafting", step="refine_dispatched", status="ok",

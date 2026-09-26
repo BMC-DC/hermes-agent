@@ -215,6 +215,49 @@ def test_refine_completion_succeeds_with_only_the_refined_platform_in_metadata(c
     assert updates[0]["text"] == "Two lines, exactly as asked."
 
 
+def test_refine_recovers_review_url_from_kanban_comment_when_store_record_lacks_it(conn, ops, store, review_config, monkeypatch):
+    """Regression test for a real production incident (2026-09-26, task t_9026ad85):
+    the first-round completion failed (a malformed 'blog' object) before ever reaching
+    ``store.upsert_submission(..., {"review_url": ...})``, leaving a real, non-None store
+    record with no review_url. A human then manually completed the task correctly and
+    the review page got created, with only a "Review page: <url>" Kanban comment as the
+    record of it (the store was never updated). ``_record_for_task`` used to short-circuit
+    on "record is not None" and never fall back to scanning that comment — every
+    subsequent refine round failed with "could not recover the review-page URL" even
+    though the review page existed and was linked right there in the task's own history."""
+    root_id = pipeline.handle_intake(conn, ops, store, submission_id="recover-1", event_pack={**EVENT_PACK, "submissionId": "recover-1"})
+    _complete_as_stylus(conn, root_id, STYLUS_METADATA)
+    # Simulate the first-round completion failing before review_url was ever persisted —
+    # the store record exists (from handle_intake) but is missing it.
+    assert store.get_submission("recover-1").get("review_url") is None
+
+    # Simulate the manual remediation: a human (or another completion path) posts the
+    # review page link as a plain Kanban comment, exactly like pipeline.py's own
+    # `ops.add_comment(conn, task.id, CREATED_BY, f"Review page: {review_url}")` does.
+    ops.add_comment(conn, root_id, pipeline.CREATED_BY, "Review page: https://bmcposts.example/review/recovered")
+
+    refine_result = pipeline.handle_review_action(
+        conn, ops, store, task_id=root_id, platform="fb", action="refine", comment="warmer",
+    )
+    new_task_id = refine_result["task_id"]
+    _complete_as_stylus(conn, new_task_id, {"event_title": "Day-Long Meditation Retreat", "fb": "A warmer version."})
+
+    updates = []
+    monkeypatch.setattr(pipeline, "update_review", lambda config, **kw: updates.append(kw))
+    result = pipeline.handle_stylus_completion(conn, ops, store, review_config, new_task_id)
+
+    assert result["action"] == "updated_review_page"
+    assert result["review_url"] == "https://bmcposts.example/review/recovered"
+    assert updates[0]["text"] == "A warmer version."
+
+    # The round-tracking upsert must land on the ORIGINAL submission_id key
+    # ("recover-1"), never a new record keyed by the Kanban root_task_id — that was
+    # the second half of this same incident (a silently orphaned duplicate record).
+    original = store.get_submission("recover-1")
+    assert original["rounds"]["fb"]["task_id"] == new_task_id
+    assert store.get_submission(root_id) is None
+
+
 class _FakeVisualizerCursor:
     def __init__(self, conn):
         self._conn = conn
