@@ -265,18 +265,23 @@ def handle_intake(
 
 
 def _record_for_task(conn, ops: KanbanOps, store: NewsletterPipelineStore, task) -> Optional[dict[str, Any]]:
+    """Mirrors event_post_pipeline.pipeline._record_for_task's fix (same incident
+    class, found the same day, 2026-09-26): a store record found by find_by_task_id
+    can exist yet still be missing review_url (e.g. a first-round completion that
+    failed before ever persisting it) — the old "record is not None: return it"
+    short circuit skipped the Kanban-comment fallback in exactly that case."""
     refine = _REFINE_IDEMPOTENCY_RE.match(task.idempotency_key or "")
     root_task_id = refine.group("root") if refine else task.id
     record = store.find_by_task_id(root_task_id) or store.get_issue(root_task_id)
-    if record is not None:
+    if record is not None and record.get("review_url"):
         return record
     root_task = ops.get_task(conn, root_task_id)
     if root_task is None:
-        return None
+        return record
     for comment in ops.list_comments(conn, root_task_id):
         if match := _REVIEW_URL_COMMENT_RE.search(comment.body):
-            return {"root_task_id": root_task_id, "review_url": match.group(1)}
-    return None
+            return {**(record or {}), "root_task_id": root_task_id, "review_url": match.group(1)}
+    return record
 
 
 def _extract_stylus_metadata(run) -> dict[str, Any]:
@@ -388,7 +393,13 @@ def _handle_refine_completion(conn, ops, store, review_config, task, metadata: d
     except ReviewClientError as exc:
         raise PipelineError(str(exc)) from exc
     root_task_id = record.get("root_task_id") or task.idempotency_key.rsplit("-", 1)[0]
-    store.upsert_issue(root_task_id, {"round_task_id": task.id, "latest_draft": draft})
+    # The store's own dict key is submission_id (an intake-time slug), never
+    # root_task_id (a Kanban task id — a different identity space, per
+    # handle_intake()'s own upsert). Mirrors event_post_pipeline.pipeline's same
+    # fix, found the same day: upserting by root_task_id here silently created a
+    # second, orphaned store record instead of updating the real issue.
+    store_key = record.get("submission_id") or root_task_id
+    store.upsert_issue(store_key, {"round_task_id": task.id, "latest_draft": draft})
     _track_run(
         database_url, root_task_id, title=record.get("issue_month", root_task_id), state="waiting",
         current_step="awaiting_review", step="stylus_done", status="ok", detail=review_url,
@@ -427,7 +438,12 @@ def _maybe_send_via_brevo(
     """
     if brevo_config is None:
         return None
-    record = store.get_issue(root_task_id) or {}
+    # root_task_id is a Kanban task id, never the store's own dict key
+    # (submission_id) — same identity mismatch as the refine-path fixes above.
+    # A direct store.get_issue(root_task_id) here would always miss once Brevo
+    # send is enabled, since the real record's review_url/latest_draft live
+    # under the submission_id key instead.
+    record = store.find_by_task_id(root_task_id) or store.get_issue(root_task_id) or {}
     review_url = record.get("review_url")
     draft = record.get("latest_draft")
     if not review_url or not draft:
@@ -474,7 +490,14 @@ def handle_review_action(
         return result
 
     if action == "refine":
-        record = store.get_issue(task_id) or {}
+        # ``task_id`` here is the Kanban root task id, never the store's own dict
+        # key (submission_id). Mirrors event_post_pipeline.pipeline's same fix,
+        # found the same day (2026-09-26): a direct-key store.get_issue(task_id)
+        # lookup always misses here, and upserting "round_task_id" back onto that
+        # same wrong key silently created a second, orphaned store record on
+        # every single refine dispatch instead of updating the real issue.
+        record = store.find_by_task_id(task_id) or store.get_issue(task_id) or {}
+        store_key = record.get("submission_id") or task_id
         previous_metadata = _previous_metadata(ops.latest_run(conn, task_id))
         next_round = (max(_round_tasks(conn, ops, task_id), default=0)) + 1
         idempotency_key = f"{task_id}-r{next_round}"
@@ -483,7 +506,7 @@ def handle_review_action(
             conn, title=f"Redraft newsletter (round {next_round}): {root_task.title.removeprefix('Draft newsletter: ')}",
             body=body, assignee="stylus", idempotency_key=idempotency_key, tenant=TENANT, created_by=CREATED_BY,
         )
-        store.upsert_issue(task_id, {"round_task_id": new_task_id})
+        store.upsert_issue(store_key, {"round_task_id": new_task_id})
         _track_run(
             database_url, task_id, title=record.get("issue_month", task_id), state="running",
             current_step="refine_drafting", step="refine_dispatched", status="ok", detail=f"round {next_round}",
