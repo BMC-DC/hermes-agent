@@ -368,7 +368,10 @@ _HTML_SKELETON = """<!DOCTYPE html>
 
 
 def bhante_advice_section_html(paragraph: str, quote: Optional[str]) -> str:
-    html = _subtitle("Bhante's Advice") + "\n" + _paragraphs(paragraph)
+    """Renders as "Monk's Advice" in the email — the function/field names
+    stay bhante_advice_* (internal, no user-facing effect); only the
+    displayed label changed."""
+    html = _subtitle("Monk's Advice") + "\n" + _paragraphs(paragraph)
     if quote:
         html += "\n" + _pull_quote(quote)
     return html
