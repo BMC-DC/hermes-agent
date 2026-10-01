@@ -220,6 +220,8 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
         return web.json_response({"ok": True, **result})
 
     async def _notify_review_action(self, action: models.ReviewActionPayload, result: dict) -> None:
+        if action.action == "edited":
+            return  # a manual-edit acknowledgement, not a lifecycle event — the follow-up "approved" (if any) notifies
         """Lifecycle event "review action taken" (plan doc's lifecycle table): notifies
         the shared social-media WhatsApp group that a draft was approved/rejected/sent
         back for a refine (decided 2026-09-21: every pipeline notification goes to the
@@ -274,6 +276,7 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
             return pipeline.handle_review_action(
                 conn, ops, self._store, task_id=action.task_id, platform=action.platform,
                 action=action.action, comment=action.comment, database_url=self._db_url,
+                edited_text=action.edited_text, edited_seo=action.edited_seo,
             )
         finally:
             conn.close()

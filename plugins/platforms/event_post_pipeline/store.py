@@ -74,8 +74,11 @@ class EventPostPipelineStore:
         with self._lock:
             existing = self._state["submissions"].get(submission_id, {})
             merged = {**existing, **deepcopy(patch)}
-            if "rounds" in patch:
-                merged["rounds"] = {**existing.get("rounds", {}), **deepcopy(patch["rounds"])}
+            # Per-platform dicts: merge one level deeper so patching one platform
+            # never drops another's entry.
+            for nested in ("rounds", "manual_edits"):
+                if nested in patch:
+                    merged[nested] = {**existing.get(nested, {}), **deepcopy(patch[nested])}
             merged["submission_id"] = submission_id
             merged.setdefault("created_at", existing.get("created_at") or _utc_now_iso())
             merged["updated_at"] = _utc_now_iso()

@@ -203,6 +203,8 @@ class NewsletterPipelineAdapter(BasePlatformAdapter):
         return web.json_response({"ok": True, **result})
 
     async def _notify_review_action(self, action: models.ReviewActionPayload, result: dict) -> None:
+        if action.action == "edited":
+            return  # a manual-edit acknowledgement, not a lifecycle event — the follow-up "approved" (if any) notifies
         verb = {"approved": "approved", "rejected": "rejected", "refine": "sent back for a refine"}.get(action.action, action.action)
         message = f"The newsletter draft was {verb} on review."
         if action.comment:
@@ -232,6 +234,7 @@ class NewsletterPipelineAdapter(BasePlatformAdapter):
             return pipeline.handle_review_action(
                 conn, ops, self._store, self._review_config, task_id=action.task_id, action=action.action,
                 comment=action.comment, database_url=self._db_url, brevo_config=self._brevo_config,
+                copy=action.copy, draft_sha256=action.draft_sha256,
             )
         finally:
             conn.close()

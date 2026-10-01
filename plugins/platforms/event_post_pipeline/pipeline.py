@@ -455,7 +455,7 @@ def _current_platform_task(conn, ops: KanbanOps, root_task_id: str, platform: st
 
 def handle_review_action(
     conn, ops: KanbanOps, store: EventPostPipelineStore, *, task_id: str, platform: str, action: str, comment: str,
-    database_url: Optional[str] = None,
+    database_url: Optional[str] = None, edited_text: Optional[str] = None, edited_seo: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Step 5/6: a review-page button click. ``task_id`` here is the review page's
     recorded ``taskId`` — always the *root* Stylus task, per the skill's own contract
@@ -467,6 +467,12 @@ def handle_review_action(
     current_task = _current_platform_task(conn, ops, task_id, platform)
     if current_task is None:
         raise PipelineError(f"no drafting task found for platform={platform!r} under root task {task_id!r}")
+
+    if action == "edited":
+        return _handle_manual_edit(
+            conn, ops, store, root_task=root_task, current_task=current_task, platform=platform,
+            edited_text=edited_text, edited_seo=edited_seo, database_url=database_url,
+        )
 
     if action in ("approved", "rejected"):
         outcome_line = f"{platform.upper()} {action.upper()} via review page: {comment}" if comment else f"{platform.upper()} {action.upper()} via review page"
@@ -488,6 +494,13 @@ def handle_review_action(
         record = store.find_by_task_id(task_id) or store.get_submission(task_id) or {}
         store_key = record.get("submission_id") or task_id
         previous_draft = _previous_draft_text(ops.latest_run(conn, current_task.id), platform)
+        # A reviewer's hand-edit of THIS draft supersedes what Stylus originally wrote:
+        # a redraft must start from the version the reviewer actually shaped. Only honored
+        # when it was made against the very task the redraft is built on (``base_task_id``)
+        # — once a newer Stylus round exists, that round is the draft of record again.
+        manual = (record.get("manual_edits") or {}).get(platform) or {}
+        if manual.get("base_task_id") == current_task.id and isinstance(manual.get("text"), str) and manual["text"].strip():
+            previous_draft = manual["text"]
         next_round = len(_platform_round_tasks(conn, ops, task_id, platform)) + 1
         idempotency_key = f"{task_id}-{platform}-r{next_round}"
         body = _refine_task_body(record=record, platform=platform, previous_draft=previous_draft, comment=comment)
@@ -504,6 +517,44 @@ def handle_review_action(
         return {"action": "refine_dispatched", "task_id": new_task_id, "platform": platform, "round": next_round}
 
     raise PipelineError(f"unknown review action {action!r}")
+
+
+def _handle_manual_edit(
+    conn, ops: KanbanOps, store: EventPostPipelineStore, *, root_task, current_task, platform: str,
+    edited_text: Optional[str], edited_seo: Optional[dict[str, Any]], database_url: Optional[str],
+) -> dict[str, Any]:
+    """A reviewer rewrote ``platform``'s draft by hand on the review page (the portal
+    has already validated it, and ``models.parse_review_action`` re-validated it here).
+
+    This is Stylus's acknowledgement of the edit — it does two things:
+
+    * comments the final text on the task that drafted this platform, so the Kanban
+      history (which is what Stylus and any human read) shows what actually shipped;
+    * records it in the store keyed by that task, so ``handle_review_action``'s refine
+      branch redrafts from the edited text instead of Stylus's superseded original.
+
+    It does NOT approve anything and does not touch ``pipeline_runs``' state — the
+    portal sends a normal ``approved`` action afterwards when the reviewer chose
+    "Save & approve", and the existing approve path handles that exactly as before."""
+    if not isinstance(edited_text, str) or not edited_text.strip():
+        raise PipelineError("manual edit has no text")
+    lines = [f"{platform.upper()} EDITED by a reviewer on the review page — this manual version replaces Stylus's draft and must be used as the base for any redraft:", edited_text]
+    if platform == "blog" and edited_seo:
+        lines.append(
+            f"SEO title: {edited_seo.get('seoTitle', '')}\nURL slug: {edited_seo.get('urlSlug', '')}\n"
+            f"Focus keyword: {edited_seo.get('focusKeyword', '')}\n"
+            f"Supporting keywords: {', '.join(edited_seo.get('supportingKeywords') or [])}\n"
+            f"Meta description: {edited_seo.get('metaDescription', '')}"
+        )
+    ops.add_comment(conn, current_task.id, CREATED_BY, "\n\n".join(lines))
+    record = store.find_by_task_id(root_task.id) or store.get_submission(root_task.id) or {}
+    store_key = record.get("submission_id") or root_task.id
+    store.upsert_submission(
+        store_key,
+        {"manual_edits": {platform: {"base_task_id": current_task.id, "text": edited_text, "seo": edited_seo}}},
+    )
+    _track_event_only(database_url, root_task.id, "action_taken", "ok", detail=f"edited {platform}")
+    return {"action": "edited", "task_id": current_task.id, "platform": platform}
 
 
 def _previous_draft_text(run, platform: str) -> str:

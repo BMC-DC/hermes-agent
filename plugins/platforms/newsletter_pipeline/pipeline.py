@@ -32,6 +32,7 @@ through Stylus/the LLM.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from dataclasses import dataclass
@@ -329,6 +330,10 @@ def _draft_payload(metadata: dict[str, Any], record: dict[str, Any]) -> dict[str
         "programsHtml": programs_html,
         "bonusCalloutHtml": bonus_callout_html,
         "assembledHtml": assembled_html,
+        # The plain-text copy the HTML above was rendered from — forwarded so the portal
+        # can offer a reviewer a manual edit of it (and so a manual edit re-renders the
+        # exact same way). Additive: portals that predate this ignore the key.
+        "copyFields": {key: metadata[key] for key in DRAFT_METADATA_FIELDS},
     }
 
 
@@ -399,7 +404,9 @@ def _handle_refine_completion(conn, ops, store, review_config, task, metadata: d
     # fix, found the same day: upserting by root_task_id here silently created a
     # second, orphaned store record instead of updating the real issue.
     store_key = record.get("submission_id") or root_task_id
-    store.upsert_issue(store_key, {"round_task_id": task.id, "latest_draft": draft})
+    # edited_copy: None — a fresh Stylus round supersedes any earlier manual edit, so a
+    # later redraft must not resurrect the stale hand-edited text as its "previous draft".
+    store.upsert_issue(store_key, {"round_task_id": task.id, "latest_draft": draft, "edited_copy": None})
     _track_run(
         database_url, root_task_id, title=record.get("issue_month", root_task_id), state="waiting",
         current_step="awaiting_review", step="stylus_done", status="ok", detail=review_url,
@@ -420,6 +427,22 @@ def _round_tasks(conn, ops: KanbanOps, root_task_id: str) -> list:
     tasks = ops.list_tasks(conn, tenant=TENANT, assignee="stylus", include_archived=True)
     matches = [t for t in tasks if (t.idempotency_key or "").startswith(prefix)]
     return sorted(int((t.idempotency_key or "").rsplit("r", 1)[-1]) for t in matches)
+
+
+def _verify_approved_draft(store: NewsletterPipelineStore, *, root_task_id: str, expected_sha256: str) -> None:
+    """Integrity guard for approving a manually-edited draft: the portal sends the SHA-256
+    of the exact HTML the reviewer approved, and this refuses (raising, so the approve
+    action fails loudly and nothing is emailed) unless the draft this plugin would send is
+    byte-identical. Only ever called when the portal supplied a hash (i.e. a manual edit),
+    so the ordinary Stylus-draft approve path is untouched."""
+    record = store.find_by_task_id(root_task_id) or store.get_issue(root_task_id) or {}
+    draft = record.get("latest_draft") or {}
+    html = draft.get("assembledHtml")
+    if not isinstance(html, str) or hashlib.sha256(html.encode("utf-8")).hexdigest() != expected_sha256:
+        raise PipelineError(
+            f"approved draft does not match the draft stored for task {root_task_id!r} — refusing to approve/send "
+            "(the review page and Vidu disagree about the edited newsletter; ask the reviewer to re-save the edit)"
+        )
 
 
 def _maybe_send_via_brevo(
@@ -468,11 +491,20 @@ def _maybe_send_via_brevo(
 def handle_review_action(
     conn, ops: KanbanOps, store: NewsletterPipelineStore, review_config: ReviewClientConfig, *, task_id: str, action: str, comment: str,
     database_url: Optional[str] = None, brevo_config: Optional[BrevoConfig] = None,
+    copy: Optional[dict[str, str]] = None, draft_sha256: Optional[str] = None,
 ) -> dict[str, Any]:
     """A review-page button click. ``task_id`` is always the *root* Stylus task."""
     root_task = ops.get_task(conn, task_id)
     if root_task is None:
         raise PipelineError(f"review action referenced unknown task {task_id!r}")
+
+    if action == "edited":
+        return _handle_manual_edit(conn, ops, store, root_task=root_task, copy=copy, database_url=database_url)
+
+    if action == "approved" and draft_sha256:
+        # Checked BEFORE the "approved" comment/timeline event below so a refusal leaves no
+        # misleading "APPROVED" trace behind.
+        _verify_approved_draft(store, root_task_id=task_id, expected_sha256=draft_sha256)
 
     if action in ("approved", "rejected"):
         outcome_line = f"Newsletter {action.upper()} via review page: {comment}" if comment else f"Newsletter {action.upper()} via review page"
@@ -499,6 +531,12 @@ def handle_review_action(
         record = store.find_by_task_id(task_id) or store.get_issue(task_id) or {}
         store_key = record.get("submission_id") or task_id
         previous_metadata = _previous_metadata(ops.latest_run(conn, task_id))
+        # A reviewer's hand-edit supersedes Stylus's original draft: redraft from the copy
+        # the reviewer actually shaped. Cleared whenever a newer Stylus round completes
+        # (see _handle_refine_completion), so it is only ever the latest draft of record.
+        edited_copy = record.get("edited_copy")
+        if isinstance(edited_copy, dict) and edited_copy:
+            previous_metadata = edited_copy
         next_round = (max(_round_tasks(conn, ops, task_id), default=0)) + 1
         idempotency_key = f"{task_id}-r{next_round}"
         body = _refine_task_body(record=record, previous_metadata=previous_metadata, comment=comment)
@@ -514,6 +552,39 @@ def handle_review_action(
         return {"action": "refine_dispatched", "task_id": new_task_id, "round": next_round}
 
     raise PipelineError(f"unknown review action {action!r}")
+
+
+def _handle_manual_edit(
+    conn, ops: KanbanOps, store: NewsletterPipelineStore, *, root_task, copy: Optional[dict[str, str]],
+    database_url: Optional[str],
+) -> dict[str, Any]:
+    """A reviewer rewrote the newsletter's copy by hand on the review page. This is both
+    Stylus's acknowledgement of the edit and the render step: the copy is turned into
+    HTML by the SAME deterministic ``_draft_payload`` a Stylus completion uses (so there
+    is exactly one rendering of an issue), and the rendered draft is returned to the
+    portal — which stores it as the new round — and kept as ``latest_draft``, the thing a
+    later approve actually sends to Brevo.
+
+    Idempotent (re-sending the same edit just re-renders it) and side-effect-light by
+    design: it never sends anything and never approves — the portal sends a normal
+    ``approved`` action afterwards when the reviewer chose "Save & approve"."""
+    if not isinstance(copy, dict) or any(not isinstance(copy.get(k), str) or not copy[k].strip() for k in DRAFT_METADATA_FIELDS):
+        raise PipelineError("manual edit is missing newsletter copy fields")
+    record = store.find_by_task_id(root_task.id) or store.get_issue(root_task.id)
+    if not record or not record.get("featured_cta_url"):
+        # Without the stored intake (CTA url/label, programs, recap image, quote) the HTML
+        # can't be rendered faithfully — refuse rather than render an incomplete email.
+        raise PipelineError(f"no stored intake for newsletter task {root_task.id!r} — cannot render a manual edit")
+    draft = _draft_payload(copy, record)
+    store_key = record.get("submission_id") or root_task.id
+    store.upsert_issue(store_key, {"latest_draft": draft, "edited_copy": dict(copy)})
+    ops.add_comment(
+        conn, root_task.id, CREATED_BY,
+        "Newsletter copy EDITED by a reviewer on the review page — this manual version replaces Stylus's draft "
+        "and must be used as the base for any redraft:\n" + "\n".join(f"{k}: {copy[k]}" for k in DRAFT_METADATA_FIELDS),
+    )
+    _track_event_only(database_url, root_task.id, "action_taken", "ok", detail="edited")
+    return {"action": "edited", "task_id": root_task.id, "draft": draft}
 
 
 def _previous_metadata(run) -> dict[str, Any]:
