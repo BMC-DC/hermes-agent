@@ -1,0 +1,58 @@
+# Scope for the Vidu knowledge graph (vidu-graph repo). Goal: the code an agent actually needs
+# to answer questions about THIS deployment -- our custom pipeline plugins + the upstream core
+# they hook into -- small enough to commit to GitHub (hard limit 100MB/file). A full-repo
+# extract is ~258MB (tests/ alone is ~half). Decided 2026-10-02. Enabled platforms in
+# production: whatsapp, event_post_pipeline, newsletter_pipeline.
+
+# Tests and non-backend apps
+tests/
+tests-js/
+evals/
+apps/
+ui-tui/
+web/
+website/
+native/
+docker/
+assets/
+
+# Bundled skill/sample content (our real skills live in /opt/data/skills, tracked in repo VIDU)
+skills/
+optional-skills/
+
+# Platform adapters we do not run (keep: whatsapp, event_post_pipeline, newsletter_pipeline)
+plugins/platforms/a2a/
+plugins/platforms/buzz/
+plugins/platforms/dingtalk/
+plugins/platforms/discord/
+plugins/platforms/email/
+plugins/platforms/feishu/
+plugins/platforms/google_chat/
+plugins/platforms/homeassistant/
+plugins/platforms/irc/
+plugins/platforms/line/
+plugins/platforms/matrix/
+plugins/platforms/mattermost/
+plugins/platforms/ntfy/
+plugins/platforms/photon/
+plugins/platforms/raft/
+plugins/platforms/simplex/
+plugins/platforms/slack/
+plugins/platforms/sms/
+plugins/platforms/teams/
+plugins/platforms/telegram/
+plugins/platforms/wecom/
+gateway/platforms/qqbot/
+gateway/platforms/bluebubbles.py
+gateway/platforms/signal*.py
+gateway/platforms/weixin.py
+gateway/platforms/yuanbao*.py
+gateway/platforms/msgraph_webhook.py
+
+# Unrelated plugins
+plugins/spotify/
+plugins/video_gen/
+plugins/image_gen/
+plugins/google_meet/
+plugins/hermes-achievements/
+plugins/teams_pipeline/
