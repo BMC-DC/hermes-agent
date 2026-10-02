@@ -10,8 +10,10 @@ scheduler": every tick does two unrelated checks against Postgres —
       publisher + every admin curator that it was released;
   (b) find every submission that still has a non-terminal platform draft
       (i.e. genuinely still needs review — not fully approved/rejected)
-      whose 2-hour reminder is due (``last_reminder_at`` is null, or older
-      than ``--reminder-interval-seconds``, default 2 hours) and send the
+      whose reminder is due — first one 12 hours after the "ready for review"
+      message, then once ``last_reminder_at`` is older than
+      ``--reminder-interval-seconds`` (default 24 hours); see
+      ``db.find_due_reminders`` — and send the
       "review is waiting" nudge with the actual review link to the shared
       group, then stamp ``last_reminder_at``.
 

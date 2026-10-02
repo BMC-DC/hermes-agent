@@ -42,7 +42,10 @@ from plugins.platforms.event_post_pipeline import security
 logger = logging.getLogger("plugins.platforms.event_post_pipeline")
 
 DEFAULT_LOCK_TTL_SECONDS = 60 * 60          # 1 hour, per plan doc
-DEFAULT_REMINDER_INTERVAL_SECONDS = 2 * 60 * 60  # 2 hours, per plan doc
+# Review reminders (decided 2026-10-02): the first one is due 12h after the "ready for
+# review" message, then one per 24h until every platform's latest draft is approved/rejected.
+DEFAULT_REMINDER_FIRST_DELAY_SECONDS = 12 * 60 * 60
+DEFAULT_REMINDER_INTERVAL_SECONDS = 24 * 60 * 60
 
 try:
     import psycopg2
@@ -249,23 +252,28 @@ def release_expired_locks(conn, ttl_seconds: int = DEFAULT_LOCK_TTL_SECONDS) -> 
         return [dict(row) for row in cur.fetchall()]
 
 
-def find_due_reminders(conn, interval_seconds: int = DEFAULT_REMINDER_INTERVAL_SECONDS) -> list[dict[str, Any]]:
-    """Submissions that still genuinely need a reviewer's attention, whose reminder is
-    due: never reminded, or last reminded more than ``interval_seconds`` ago.
+def find_due_reminders(
+    conn,
+    first_delay_seconds: int = DEFAULT_REMINDER_FIRST_DELAY_SECONDS,
+    interval_seconds: int = DEFAULT_REMINDER_INTERVAL_SECONDS,
+) -> list[dict[str, Any]]:
+    """Submissions still awaiting review that are due a reminder.
 
-    Found the hard way (2026-09-21, live production): this used to filter on
-    ``post_submissions.status = 'pending'`` — but nothing anywhere in this codebase
-    ever updates that column after the row is created (portal-side completion tracking
-    lives entirely in ``post_platform_drafts.status`` per platform, never mirrored back
-    onto the submission row). It was permanently 'pending' forever, so this matched
-    *every* submission ever created regardless of actual completion — reminders kept
-    firing for fully approved, months-old posts. Fixed to check per-platform draft
-    status directly: a submission is still "review-needed" if ANY platform's latest
-    round is 'pending' or 'refine_requested' (not yet a terminal approved/rejected).
+    Eligible only if ANY platform's latest round is 'pending' or 'refine_requested' (a
+    submission whose every platform's latest round is approved/rejected is complete and
+    never gets a reminder), AND:
 
-    Does not stamp — the sweep script calls ``stamp_reminder_sent`` itself only after
-    the WhatsApp send actually succeeds, so a delivery failure doesn't silently
-    suppress the next tick's retry."""
+    * the first reminder is due ``first_delay_seconds`` (12h) after the "ready for review"
+      message, whose time is anchored on the submission's earliest ``post_platform_drafts``
+      row (created within ~2s of that message by the review-page creation call — verified
+      against live data 2026-10-02; later refine rounds never move it); and
+    * a reminder is due again once ``last_reminder_at`` is older than ``interval_seconds``
+      (24h) — so after the first one, one per day.
+
+    (History: until 2026-09-21 this filtered on ``post_submissions.status = 'pending'``, a
+    column nothing ever updates, so it matched every submission ever created.)
+
+    Does not stamp — the sweep script calls ``stamp_reminder_sent`` after the send."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -279,9 +287,11 @@ def find_due_reminders(conn, interval_seconds: int = DEFAULT_REMINDER_INTERVAL_S
                       WHERE submission_id = s.id AND platform = d.platform
                   )
             )
+            AND (SELECT MIN(created_at) FROM post_platform_drafts WHERE submission_id = s.id)
+                    < now() - %s::interval
             AND (s.last_reminder_at IS NULL OR s.last_reminder_at < now() - %s::interval)
             """,
-            (f"{int(interval_seconds)} seconds",),
+            (f"{int(first_delay_seconds)} seconds", f"{int(interval_seconds)} seconds"),
         )
         return [dict(row) for row in cur.fetchall()]
 
@@ -376,7 +386,7 @@ def list_recent_pipeline_runs(conn, *, limit: int = 10, query: Optional[str] = N
         return [dict(row) for row in cur.fetchall()]
 
 
-DEFAULT_STALL_SECONDS = 20 * 60  # 20 minutes
+DEFAULT_STALL_SECONDS = 18 * 60 * 60  # 18 hours (decided 2026-10-02; was 20 minutes)
 
 
 def find_stalled_runs(conn, *, stall_seconds: int = DEFAULT_STALL_SECONDS) -> list[dict[str, Any]]:

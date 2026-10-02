@@ -82,10 +82,10 @@ def _visualizer_link(run: dict, review_base_url: str) -> str:
 
 
 def _stall_message(run: dict, *, stall_seconds: int, review_base_url: str) -> str:
-    minutes = stall_seconds // 60
+    window = f"{stall_seconds // 3600} hours" if stall_seconds >= 3600 else f"{stall_seconds // 60} minutes"
     return (
         f"⏸️ {_pipeline_label(run)} pipeline stalled: \"{run['title']}\" has had no "
-        f"activity for over {minutes} minutes (stuck at step: {run['current_step']}). "
+        f"activity for over {window} (stuck at step: {run['current_step']}). "
         f"Check it here: {_visualizer_link(run, review_base_url)}"
     )
 

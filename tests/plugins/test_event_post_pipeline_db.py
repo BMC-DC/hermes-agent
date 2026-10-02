@@ -182,14 +182,23 @@ def test_find_due_reminders_query_shape():
     approved ones, forever. Now checks post_platform_drafts directly for any
     non-terminal latest-round draft. See db.py's find_due_reminders docstring."""
     conn = _FakeConnection([{"all": [{"id": 1, "slug": "abc"}]}])
-    due = db.find_due_reminders(conn, interval_seconds=7200)
+    due = db.find_due_reminders(conn)
     assert len(due) == 1
     sql, params = conn.executed[0]
     assert "post_platform_drafts" in sql
     assert "'pending', 'refine_requested'" in sql
     assert "status = 'pending'" not in sql  # the old, buggy submission-level filter
     assert "last_reminder_at" in sql
-    assert params == ("7200 seconds",)
+    # 12h after the earliest draft (the "ready for review" message), then every 24h
+    assert "MIN(created_at) FROM post_platform_drafts" in sql
+    assert params == ("43200 seconds", "86400 seconds")
+
+
+def test_reminder_and_stall_defaults():
+    assert db.DEFAULT_LOCK_TTL_SECONDS == 3600
+    assert db.DEFAULT_REMINDER_FIRST_DELAY_SECONDS == 12 * 3600
+    assert db.DEFAULT_REMINDER_INTERVAL_SECONDS == 24 * 3600
+    assert db.DEFAULT_STALL_SECONDS == 18 * 3600
 
 
 def test_stamp_reminder_sent_updates_timestamp():

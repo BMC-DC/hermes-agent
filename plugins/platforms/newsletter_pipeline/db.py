@@ -29,11 +29,12 @@ from plugins.platforms.newsletter_pipeline import security
 
 logger = logging.getLogger("plugins.platforms.newsletter_pipeline")
 
-# Mirrors social-post-portal's lib/newsletter.ts LOCK_TTL (24hr, deliberately
-# longer than event_post_pipeline's 1hr — a newsletter review is lower-
-# frequency/higher-stakes, see newsletter-pipeline-plan.md's "Open items").
-DEFAULT_LOCK_TTL_SECONDS = 24 * 60 * 60
-DEFAULT_REMINDER_INTERVAL_SECONDS = 2 * 60 * 60
+# Mirrors social-post-portal's lib/newsletter.ts LOCK_TTL — 1hr, same as
+# event_post_pipeline (decided 2026-10-02; was 24hr). Reminders: first one 12h after
+# the "ready for review" message, then one per 24h until complete.
+DEFAULT_LOCK_TTL_SECONDS = 60 * 60
+DEFAULT_REMINDER_FIRST_DELAY_SECONDS = 12 * 60 * 60
+DEFAULT_REMINDER_INTERVAL_SECONDS = 24 * 60 * 60
 
 try:
     import psycopg2
@@ -186,10 +187,16 @@ def release_expired_locks(conn, ttl_seconds: int = DEFAULT_LOCK_TTL_SECONDS) -> 
         return [dict(row) for row in cur.fetchall()]
 
 
-def find_due_reminders(conn, interval_seconds: int = DEFAULT_REMINDER_INTERVAL_SECONDS) -> list[dict[str, Any]]:
+def find_due_reminders(
+    conn,
+    first_delay_seconds: int = DEFAULT_REMINDER_FIRST_DELAY_SECONDS,
+    interval_seconds: int = DEFAULT_REMINDER_INTERVAL_SECONDS,
+) -> list[dict[str, Any]]:
     """Issues whose latest draft round is still non-terminal (pending or
-    refine_requested — not yet approved/rejected) and whose reminder is due:
-    never reminded, or last reminded more than ``interval_seconds`` ago."""
+    refine_requested — an approved/rejected latest round is complete and never reminded)
+    and due a reminder: the first ``first_delay_seconds`` (12h) after the "ready for
+    review" message (anchored on the issue's earliest ``newsletter_drafts`` row), then
+    again once ``last_reminder_at`` is older than ``interval_seconds`` (24h)."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -200,9 +207,11 @@ def find_due_reminders(conn, interval_seconds: int = DEFAULT_REMINDER_INTERVAL_S
                   AND d.status IN ('pending', 'refine_requested')
                   AND d.round = (SELECT MAX(round) FROM newsletter_drafts WHERE issue_id = i.id)
             )
+            AND (SELECT MIN(created_at) FROM newsletter_drafts WHERE issue_id = i.id)
+                    < now() - %s::interval
             AND (i.last_reminder_at IS NULL OR i.last_reminder_at < now() - %s::interval)
             """,
-            (f"{int(interval_seconds)} seconds",),
+            (f"{int(first_delay_seconds)} seconds", f"{int(interval_seconds)} seconds"),
         )
         return [dict(row) for row in cur.fetchall()]
 

@@ -7,15 +7,15 @@ Mirrors ``scripts/spp_review_sweep.py`` exactly in shape, against
 unrelated checks against Postgres —
 
   (a) release any ``newsletter_issues`` review-claim lock older than
-      ``--lock-ttl-seconds`` (default 24 hours — see
-      ``plugins/platforms/newsletter_pipeline/db.py``'s
-      ``DEFAULT_LOCK_TTL_SECONDS`` docstring for why this is longer than
-      the event-post pipeline's 1 hour) and notify the shared group it's
+      ``--lock-ttl-seconds`` (default 1 hour — same as the event-post pipeline; was 24 hours
+      until 2026-10-02) and notify the shared group it's
       open for review again;
   (b) find every issue whose latest draft round is still non-terminal
-      (genuinely still needs review) whose 2-hour reminder is due and send
-      the "review is waiting" nudge with the actual review link, then
-      stamp ``last_reminder_at``.
+      (genuinely still needs review — never a completed one) whose reminder
+      is due — first one 12 hours after the "ready for review" message,
+      then one per 24 hours (``db.find_due_reminders``) — and send the
+      "review is waiting" nudge with the actual review link, then stamp
+      ``last_reminder_at``.
 
 Plain, deterministic script — no LLM call, no agent turn (the ``no_agent``
 script job type, same as ``spp_review_sweep.py``). Intended registration
@@ -66,7 +66,7 @@ def _review_link(issue: dict, review_base_url: str) -> str:
 def _lock_timeout_message(issue: dict, review_base_url: str) -> str:
     return (
         f"Review claim on {_review_link(issue, review_base_url)} was released after "
-        f"sitting locked for over 24 hours with no action taken. It's open for review again."
+        f"sitting locked for over an hour with no action taken. It's open for review again."
     )
 
 
