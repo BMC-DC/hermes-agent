@@ -145,3 +145,27 @@ def test_sweep_pending_reminders_passes_review_base_url_through(monkeypatch):
     sweep.sweep_pending_reminders(_FakeConn(), reminder_interval_seconds=7200, review_base_url="https://example.test")
 
     assert notified == ["Reminder: the review for https://example.test/review/xyz is still waiting."]
+
+
+def test_failed_reminder_send_still_stamps_once_and_does_not_abort_the_tick(monkeypatch):
+    """Regression (2026-10-05): the WhatsApp bridge can report an error AFTER the message was
+    already delivered (EACCES on a root-owned sender-key file). Stamping only after a clean
+    send left last_reminder_at NULL, so the reminder repeated every 15 minutes. It must stamp
+    first, swallow the error, and carry on to the next submission."""
+    due_rows = [{"id": 10, "slug": "xyz"}, {"id": 11, "slug": "qrs"}]
+    monkeypatch.setattr(db, "find_due_reminders", lambda conn, interval_seconds: due_rows)
+    stamped = []
+    monkeypatch.setattr(db, "stamp_reminder_sent", lambda conn, sid: stamped.append(sid))
+    attempts = []
+
+    async def failing_send(message):
+        attempts.append(message)
+        raise RuntimeError("bridge 500")
+
+    monkeypatch.setattr(sweep.whatsapp_notify, "send_whatsapp_link", failing_send)
+
+    due = sweep.sweep_pending_reminders(_FakeConn(), reminder_interval_seconds=86400)
+
+    assert due == due_rows
+    assert stamped == [10, 11]
+    assert len(attempts) == 2

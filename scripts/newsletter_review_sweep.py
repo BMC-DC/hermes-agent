@@ -79,18 +79,25 @@ def sweep_lock_timeouts(conn, *, lock_ttl_seconds: int, review_base_url: str = D
     "shared visibility, not per-person DMs" convention as spp_review_sweep.py."""
     released = db.release_expired_locks(conn, ttl_seconds=lock_ttl_seconds)
     for issue in released:
-        asyncio.run(whatsapp_notify.send_whatsapp_link(_lock_timeout_message(issue, review_base_url)))
+        try:
+            asyncio.run(whatsapp_notify.send_whatsapp_link(_lock_timeout_message(issue, review_base_url)))
+        except Exception as exc:
+            logger.error("newsletter_review_sweep: lock-release send failed for issue=%s: %s", issue.get("id"), exc)
     return released
 
 
 def sweep_pending_reminders(conn, *, reminder_interval_seconds: int, review_base_url: str = DEFAULT_REVIEW_BASE_URL) -> list[dict[str, Any]]:
-    """Sends the "review is waiting" nudge for every issue whose reminder is due, then
-    stamps ``last_reminder_at`` — a delivery failure still stamps, matching a cron
-    script's "best effort, don't jam the queue on one bad send" expectations."""
+    """Sends the "review is waiting" nudge for every issue whose reminder is due.
+    ``last_reminder_at`` is stamped BEFORE the send and a send error is only logged: at
+    most one attempt per reminder interval, never a retry on the next tick (see
+    spp_review_sweep.py's docstring for the 2026-10-05 every-15-minutes incident)."""
     due = db.find_due_reminders(conn, interval_seconds=reminder_interval_seconds)
     for issue in due:
-        asyncio.run(whatsapp_notify.send_whatsapp_link(_reminder_message(issue, review_base_url)))
         db.stamp_reminder_sent(conn, issue["id"])
+        try:
+            asyncio.run(whatsapp_notify.send_whatsapp_link(_reminder_message(issue, review_base_url)))
+        except Exception as exc:
+            logger.error("newsletter_review_sweep: reminder send failed for issue=%s: %s", issue.get("id"), exc)
     return due
 
 

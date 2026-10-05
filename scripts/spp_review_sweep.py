@@ -85,22 +85,29 @@ def sweep_lock_timeouts(conn, *, lock_ttl_seconds: int, review_base_url: str = D
     per-person messages). Returns the released rows (for the caller's summary/tests)."""
     released = db.release_expired_locks(conn, ttl_seconds=lock_ttl_seconds)
     for submission in released:
-        asyncio.run(whatsapp_notify.send_whatsapp_link(_lock_timeout_message(submission, review_base_url)))
+        try:
+            asyncio.run(whatsapp_notify.send_whatsapp_link(_lock_timeout_message(submission, review_base_url)))
+        except Exception as exc:
+            logger.error("spp_review_sweep: lock-release send failed for submission=%s: %s", submission.get("id"), exc)
     return released
 
 
 def sweep_pending_reminders(conn, *, reminder_interval_seconds: int, review_base_url: str = DEFAULT_REVIEW_BASE_URL) -> list[dict[str, Any]]:
     """Sends the "review is waiting" nudge to the shared group for every submission whose
-    reminder is due, then stamps ``last_reminder_at`` — only after a successful send attempt
-    (a delivery *failure* still stamps, matching a cron script's "best effort, don't jam the
-    queue on one bad number" expectations). ``db.find_due_reminders`` already restricts this
-    to submissions that genuinely still have a non-terminal platform draft — see its
-    docstring for the 2026-09-21 bug this fixes (it used to fire for every submission ever
-    created, including fully approved ones, months old)."""
+    reminder is due. ``last_reminder_at`` is stamped BEFORE the send and a send error is
+    only logged: at most one attempt per reminder interval, never a retry on the next tick.
+    (2026-10-05: stamping after the send meant a bridge error that fires *after* the message
+    was already delivered — root-owned session files, EACCES on the sender-key write — left
+    the row unstamped, so the same reminder went out every 15 minutes.)
+    ``db.find_due_reminders`` restricts this to submissions that genuinely still have a
+    non-terminal platform draft."""
     due = db.find_due_reminders(conn, interval_seconds=reminder_interval_seconds)
     for submission in due:
-        asyncio.run(whatsapp_notify.send_whatsapp_link(_reminder_message(submission, review_base_url)))
         db.stamp_reminder_sent(conn, submission["id"])
+        try:
+            asyncio.run(whatsapp_notify.send_whatsapp_link(_reminder_message(submission, review_base_url)))
+        except Exception as exc:
+            logger.error("spp_review_sweep: reminder send failed for submission=%s: %s", submission.get("id"), exc)
     return due
 
 
