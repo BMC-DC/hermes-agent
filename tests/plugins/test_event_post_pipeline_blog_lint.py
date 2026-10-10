@@ -402,25 +402,24 @@ def test_r11b_does_not_flag_non_people_or_plain_quotes():
 
 
 # ---------------------------------------------------------------------------------------------
-# R12 (never rewrites; hard for misspellings outside quotes; curator text exempt)
+# R12 (warn only — owner decision D4; never rewrites; curator text exempt; no name lists)
 # ---------------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("variant, level", [
-    ("Bhanthe Pannakara", "hard"), ("Banthe Pannakara", "hard"), ("Bhante Panacara", "hard"), ("Mahamewnawa", "hard"),
-    ("Buddhist Meditation Center", "hard"), ("Venerable Pannakara", "warn"), ("Venerable Bhante Pannakara", "warn"),
-    ("Ven. Pannakara", "warn"), ("Pannakara Thero", "warn"), ("Venerable Amitha Khema", "warn"),
-])
-def test_r12_variants_are_reported_with_their_level(variant, level):
-    r = lint(CLEAN + f"\n\nWe thank {variant} for coming.")
-    assert level in hard_or_warn(r, "R12"), r["findings"]
-    assert r["ok"] is (level == "warn")
+@pytest.mark.parametrize("variant", ["Bhanthe", "Banthe"])
+def test_r12_title_spelling_variants_warn_but_never_block(variant):
+    r = lint(CLEAN + f"\n\nWe thank {variant} Someone for coming.")
+    assert "warn" in hard_or_warn(r, "R12") and "hard" not in hard_or_warn(r, "R12"), r["findings"]
+    assert r["ok"] is True
 
 
-def test_r12_house_spelling_is_fine_and_text_is_never_rewritten():
-    body = CLEAN + "\n\nWe thank Bhante Pannakara and Rev. Amitha Khema for coming."
-    r = lint(body)
-    assert r["rules"]["R12"] == "pass"
-    bad = CLEAN + "\n\nWe thank Bhanthe Pannakara for coming."
+@pytest.mark.parametrize("text", ["Bhante Someone", "Panacara", "Mahamewnawa", "Buddhist Meditation Center",
+                                  "Venerable Someone", "Ven. Someone Thero"])
+def test_r12_names_are_used_as_entered_and_never_flagged(text):
+    assert "R12" not in ids(lint(CLEAN + f"\n\nWe thank {text} for coming."))
+
+
+def test_r12_text_is_never_rewritten():
+    bad = CLEAN + "\n\nWe thank Bhanthe Someone for coming."
     r = lint_blog({"title": "T", "body": bad}, {})
     assert r["body"] == bad                      # reported, never rewritten
     f = next(f for f in r["findings"] if f["id"] == "R12")
@@ -428,21 +427,21 @@ def test_r12_house_spelling_is_fine_and_text_is_never_rewritten():
 
 
 def test_r12_not_applied_inside_quotation_marks_or_to_curator_text():
-    assert "R12" not in ids(lint(CLEAN + "\n\nHe said, “Thank you Bhanthe Pannakara for coming.”"))
-    assert "R12" not in ids(lint(CLEAN + '\n\nHe said, "Thank you Bhanthe Pannakara for coming."'))
-    pack = {"description": "Thank you Bhanthe Pannakara for visiting us at the center for a meet and greet"}
-    assert "R12" not in ids(lint(CLEAN + "\n\nThank you Bhanthe Pannakara for visiting us at the center.", pack))
-    assert "R12" in ids(lint(CLEAN + "\n\nWe also met Bhanthe Pannakara there.", pack))
+    assert "R12" not in ids(lint(CLEAN + "\n\nHe said, “Thank you Bhanthe Someone for coming.”"))
+    assert "R12" not in ids(lint(CLEAN + '\n\nHe said, "Thank you Bhanthe Someone for coming."'))
+    pack = {"description": "Thank you Bhanthe Someone for visiting us at the center for a meet and greet"}
+    assert "R12" not in ids(lint(CLEAN + "\n\nThank you Bhanthe Someone for visiting us at the center.", pack))
+    assert "R12" in ids(lint(CLEAN + "\n\nWe also met Bhanthe Someone there.", pack))
 
 
 def test_r12_checks_seo_title_and_meta_description_too():
-    r = lint(CLEAN, seo_title="Bhanthe talk", meta_description="A talk with Banthe Pannakara")
+    r = lint(CLEAN, seo_title="Bhanthe talk", meta_description="A talk with Banthe Someone")
     assert {f["field"] for f in r["findings"] if f["id"] == "R12"} == {"seo_title", "meta_description"}
 
 
 def test_r12_spellings_are_data():
     rules = copy.deepcopy(load_rules())
-    rules["rules"]["R12"]["never_print"] = [{"pattern": r"\bzebra\b", "use": "horse"}]
+    rules["rules"]["R12"]["variants"] = [{"pattern": r"\bzebra\b", "use": "horse"}]
     assert "R12" in ids(lint_blog({"title": "T", "body": CLEAN + " A zebra."}, {}, rules))
     assert "R12" not in ids(lint_blog({"title": "T", "body": CLEAN + " Bhanthe."}, {}, rules))
 
@@ -548,9 +547,17 @@ def test_rules_file_ships_beside_the_module_and_loads():
     assert lint_blog(CLEAN, {})["rules_version"] == 1
 
 
+def test_no_person_or_organisation_names_in_plugin_lint_files():
+    """Owner decision D4: no name lists anywhere (code or YAML)."""
+    text = (MODULE.read_text(encoding="utf-8") + (PLUGIN_DIR / "lint_rules.yaml").read_text(encoding="utf-8")).lower()
+    for needle in ("pannakara", "amitha", "khema", "panacara", "mahamevnawa", "mahamewnawa", "buddhist meditation center"):
+        assert needle not in text, needle
+    assert load_rules()["rules"]["R12"]["level"] == "warn"
+
+
 def test_no_phrase_lists_in_code():
     src = MODULE.read_text(encoding="utf-8")
-    for needle in ("follow our page", "Bhanthe", "Banthe", "Panacara", "In a world", "abstract idea", "internal link opportunity"):
+    for needle in ("follow our page", "Bhanthe", "Banthe", "In a world", "abstract idea", "internal link opportunity"):
         assert needle not in src, needle
 
 

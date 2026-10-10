@@ -201,32 +201,20 @@ rules:
                    reflected, told, wrote, observed, added, encouraged, spoke, put it, reminds, remarked,
                    emphasized, emphasised, expressed, recalled, cautioned, advised, described]
 
-  # ---- R12 spelling variants (house spelling "Bhante", owner decision D1) -----------------------------
-  # Never rewrites text; only reports where a wrong form is PRINTED. Not applied inside quotation marks,
-  # nor to a passage the curator wrote verbatim (a 24-character window around the hit that appears in
-  # the pack text) — R10 asks us to keep curator text, so the two rules must not fight.
-  #   never_print: HARD — these are misspellings of a person's or organisation's name; STYLE_GUIDE §6
-  #     "Never print a misspelt name" and PLUGIN_DESIGN §5 give them hard-outside-quotes. A later guard
-  #     is capped at 2 rejections, so a false positive costs two retries, not a stuck task.
-  #   prefer: warn — a legitimate-but-not-house form (title variants); the owner still has to confirm
-  #     the list (WORKLOG D1: "Bhante" everywhere on the website; the resident teacher's full form is
-  #     "Rev. Amitha Khema"). Add entries as the center confirms names.
+  # ---- R12 spelling variants ------------------------------------------------------------------------
+  # warn (owner decision D4, 2026-10-10): names and spelling are NOT a hard weight, and no list of people
+  # or organisations is kept anywhere — names are used exactly as the publisher enters them. The only
+  # entries are the house spelling of the single title the owner stated in D1 ("Bhante" on the website;
+  # "Bhanthe"/"Banthe" are other spellings of the same word). Never rewrites text; only reports where a
+  # variant is PRINTED. Not applied inside quotation marks, nor to a passage the curator wrote verbatim
+  # (a 24-character window around the hit that appears in the pack text) — R10 asks us to keep curator
+  # text, so the two rules must not fight. Do not add personal or organisation names here.
   R12:
-    level_never_print: hard
-    level_prefer: warn
+    level: warn
     enabled: true
-    never_print:
+    variants:
       - {pattern: '\bBhanthe\b', use: 'Bhante'}
       - {pattern: '\bBanthe\b', use: 'Bhante'}
-      - {pattern: '\bPanacara\b', use: 'Pannakara'}
-      - {pattern: '\bMahamewnawa\b', use: 'Mahamevnawa'}
-      - {pattern: '\bMahamewna\b', use: 'Mahamevnawa'}
-      - {pattern: '\bBuddhist Meditation Center\b', use: 'Buddha Meditation Center'}
-    prefer:
-      - {pattern: '\bVen(?:erable|\.)\s+(?:Bhante\s+)?Pannakara\b', use: 'Bhante Pannakara'}
-      - {pattern: '\bPannakara Thero\b', use: 'Bhante Pannakara'}
-      - {pattern: '\bVenerable Amitha Khema\b', use: 'Rev. Amitha Khema'}
-      - {pattern: '\bVen\. Amitha Khema\b', use: 'Rev. Amitha Khema'}
     context_chars: 24
 
   # ---- R13 padding vs pack length ------------------------------------------------------------------

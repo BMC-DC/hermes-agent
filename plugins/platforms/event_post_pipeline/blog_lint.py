@@ -26,10 +26,9 @@ The report also carries ``rules`` (per item: ``pass`` / ``fail`` / ``n/a``), ``m
 Rule levels
 -----------
 *hard*  = the output is broken or unsafe to publish as is:
-  ``C1`` no blog text; ``R7`` placeholders / unresolved markup; ``R8a`` malformed or dangerous links;
-  ``R12`` (never-print list) a misspelt name of a person/organisation printed outside quotation marks.
+  ``C1`` no blog text; ``R7`` placeholders / unresolved markup; ``R8a`` malformed or dangerous links.
 *warn*  = a stylistic heuristic whose detector is approximate: R1, R2, R3, R4, R6, R8b/c, R10, R11,
-  R12 (prefer list), R13, R14, R15, R16. They are for a reviewer/critic to weigh, never to block on.
+  R12 (spelling variants; owner decision D4: names and spelling are not a hard weight), R13, R14, R15, R16. They are for a reviewer/critic to weigh, never to block on.
 The reason for each default is written next to the rule in ``lint_rules.yaml``.
 
 Changing the rules
@@ -98,8 +97,7 @@ _RULE_IDS = ("R1", "R2", "R3", "R4", "R6", "R7", "R8", "R10", "R11", "R12", "R13
 _LEVEL_KEYS = {
     "R8": ("level_malformed", "level_generic_anchor", "level_duplicate"),
     "R11": ("level_verbatim", "level_speaker"),
-    "R12": ("level_never_print", "level_prefer"),
-}
+    }
 _REGEX_LISTS = {
     "R1": ("patterns",), "R4": ("phrases",), "R6": ("stock_endings",), "R7": ("patterns",),
 }
@@ -153,14 +151,13 @@ def _validate(rules: Any, source: str) -> dict[str, Any]:
     for key in ("tail_link_regex",):
         _check_regex(body["R6"].get(key), f"{source}: rule R6.{key}")
     _check_regex(body["R15"].get("pattern"), f"{source}: rule R15.pattern")
-    for group in ("never_print", "prefer"):
-        entries = body["R12"].get(group)
-        if not isinstance(entries, list):
-            raise LintRulesError(f"{source}: rule R12.{group} must be a list")
-        for entry in entries:
-            if not isinstance(entry, dict) or "pattern" not in entry or "use" not in entry:
-                raise LintRulesError(f"{source}: rule R12.{group} entries need 'pattern' and 'use'")
-            _check_regex(entry["pattern"], f"{source}: rule R12.{group}")
+    entries = body["R12"].get("variants")
+    if not isinstance(entries, list):
+        raise LintRulesError(f"{source}: rule R12.variants must be a list")
+    for entry in entries:
+        if not isinstance(entry, dict) or "pattern" not in entry or "use" not in entry:
+            raise LintRulesError(f"{source}: rule R12.variants entries need 'pattern' and 'use'")
+        _check_regex(entry["pattern"], f"{source}: rule R12.variants")
     spec = rules["specifics"]
     for key in ("not_names", "honorifics", "number_words", "scene_words"):
         _split_words(spec.get(key), f"{source}: specifics.{key}")
@@ -606,23 +603,21 @@ def _r12(c: _Ctx):
     n = cfg["context_chars"]
     findings: list[dict[str, Any]] = []
     quoted_cache: dict[str, list[tuple[int, int]]] = {}
-    for group, level in (("never_print", cfg["level_never_print"]), ("prefer", cfg["level_prefer"])):
-        for entry in cfg[group]:
-            rx = re.compile(entry["pattern"])
-            for name, text in fields:
-                quoted = quoted_cache.setdefault(name, _quoted_spans(text) if name == "body" else [])
-                for m in rx.finditer(text):
-                    if any(a <= m.start() and m.end() <= b for a, b in quoted):
-                        continue
-                    lo = max(text.rfind("\n", 0, m.start()) + 1, m.start() - n)
-                    hi = m.end() + n
-                    nl = text.find("\n", m.end(), hi)
-                    window = text[lo: nl if nl >= 0 else hi]
-                    if len(window) > len(m.group(0)) + 4 and window in pack_text:
-                        continue  # curator wrote it that way; R10 asks us to keep curator text
-                    kind = "misspelt/unused form" if group == "never_print" else "non-house form"
-                    findings.append(_f("R12", level, f"{kind} “{m.group(0)}” — house spelling is “{entry['use']}”",
-                                       field=name, span=(m.start(), m.end()) if name in ("body", "title") else None))
+    for entry in cfg["variants"]:
+        rx = re.compile(entry["pattern"])
+        for name, text in fields:
+            quoted = quoted_cache.setdefault(name, _quoted_spans(text) if name == "body" else [])
+            for m in rx.finditer(text):
+                if any(a <= m.start() and m.end() <= b for a, b in quoted):
+                    continue
+                lo = max(text.rfind("\n", 0, m.start()) + 1, m.start() - n)
+                hi = m.end() + n
+                nl = text.find("\n", m.end(), hi)
+                window = text[lo: nl if nl >= 0 else hi]
+                if len(window) > len(m.group(0)) + 4 and window in pack_text:
+                    continue  # curator wrote it that way; R10 asks us to keep curator text
+                findings.append(_f("R12", cfg["level"], f"spelling variant “{m.group(0)}” — house spelling is “{entry['use']}”",
+                                   field=name, span=(m.start(), m.end()) if name in ("body", "title") else None))
     return ("fail" if findings else "pass"), findings[:30], {}
 
 
