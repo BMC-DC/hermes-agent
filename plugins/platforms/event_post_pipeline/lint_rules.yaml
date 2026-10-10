@@ -1,0 +1,275 @@
+# lint_rules.yaml — every phrase list, threshold, spelling variant and level used by blog_lint.py.
+#
+# HOW TO CHANGE THIS FILE (see blog_lint.py's module docstring for the full guide)
+#   * Edit here, never in code and never in a Stylus prompt: a "don't write X" list in a prompt
+#     primes the model to write X (WORKLOG, head's gap #2). Only this linter knows the wrong forms.
+#   * level: "hard" = the output is broken or unsafe (a later guard may reject it in-turn);
+#            "warn" = a stylistic heuristic (shown to the reviewer/head, never blocks on its own).
+#     The default levels below are decisions, with the reason in the comment above each rule.
+#   * enabled: false switches a rule off. Unknown keys / bad regexes / bad levels make the file
+#     fail to load with a clear error (blog_lint.LintRulesError) rather than silently lint less.
+#   * Regexes are Python `re` syntax, matched case-sensitively unless the rule says otherwise.
+#   * Anything marked "calibration" came from 9 Stylus drafts + 5 published posts
+#     (style-study/RUBRIC.md §4); re-check once ~20 reviewed pairs exist.
+#   * Bump `version` when you change behaviour; it is echoed in every report.
+version: 1
+
+limits:
+  # Text beyond this many characters is not analysed (a warn finding says so): keeps run time bounded
+  # on a hostile or accidental huge draft. A normal blog post is 2-10k characters; 60k keeps a hostile input to a few seconds.
+  max_chars: 60000
+  # R10 uses difflib (quadratic); above this many words on either side the rule is skipped, and the
+  # report says so.
+  r10_max_words: 4000
+  # Fuzzy quote matching (R11a) is only attempted on drafts up to this many words.
+  r11_fuzzy_max_words: 20000
+
+# Shared by R2/R3/R6 (the "specifics" detector — a port of style-study/scripts/rubric_score.py).
+specifics:
+  # Words that are capitalised in running text but are not people/places/events: months, weekdays,
+  # house vocabulary, common sentence openers. A space-separated list (a plain list would turn
+  # "On"/"No" into YAML booleans). Detector limits (documented, not hidden):
+  #   - a name is counted only when it follows a lowercase word (or an honorific), so a name that
+  #     starts a sentence is missed, and a capitalised non-name that is not listed here is counted;
+  #   - "May" is listed as the modal verb, so the month is missed; "June"... is not listed so counts;
+  #   - numbers count every digit group (years, times, "6" in "Six Principles" does not count, "6" does);
+  #   - the list is house-specific and was tuned on 9 drafts; new vocabulary will need adding.
+  not_names: >
+    I A An The This That These Those It We Our Us You Your They Their He His She Her May Buddha Buddhist
+    Buddhism Dhamma Dharma Meditation Center Centre Greater Washington DC D.C. Sunday Monday Tuesday
+    Wednesday Thursday Friday Saturday January February March April June July August September October
+    November December Bhante Bhanthe Venerable Rev Mindfulness Loving-Kindness Loving-kindness Walk Peace
+    In On At For When Whether Each Every Some Many Most Rather As If Through Throughout Together Thank
+    Thanks With Learn Join Upcoming Events Program Programs Monk Monks Sutta Pali Pāli Noble Truths Path
+    Retreat Day-Long Day Long Community Volunteer Volunteers Appreciation Children Children’s Kids Gardens
+    Constitution National Mall Elements Four Six Principles Harmony Fall Gratitude Guided Grounding Middle
+    Way Stillness Practice Body Nature Letting Go Morning Evening Afternoon Shared Breathing Walking
+    Sitting Mindful Insight Full Chaos Create Our Next Beautiful Weather Moment Pause
+  # A capitalised word right after one of these counts as a name even sentence-initially.
+  honorifics: [Bhante, Bhanthe, Rev, Venerable, Ven, Dr]
+  # Spelled-out numbers (case-insensitive), in addition to digit groups.
+  number_words: [one, two, three, four, five, six, seven, eight, nine, ten, eleven, twelve, twenty, thirty,
+                 forty, fifty, hundred, hundreds, thousand, thousands, dozen]
+  # Words that count as a concrete scene detail in an opening even when no name/number is present.
+  scene_words: [forecast, rain, umbrella]
+
+rules:
+  # ---- R1 keyword-style headline ------------------------------------------------------------------
+  # warn: a headline style judgement. Evidence: Stylus "Fall Meditation Retreat in Greater Washington
+  # DC…" vs the human "It Rained on the National Mall. Nobody Left." Applied to the headline only
+  # (the `title` key, else the first line), not to seo_title (SEO titles are allowed to look like this).
+  R1:
+    level: warn
+    enabled: true
+    patterns:
+      - '\|'
+      - '\bBMC DC\b'
+      - 'in (Greater )?Washington,? DC\b'
+      - '\bBest\b'
+      - 'near me'
+      - 'at Buddha Meditation Center( DC)?$'
+
+  # ---- R2 concrete specific in the opening ---------------------------------------------------------
+  # warn: heuristic detector (see `specifics` limits). Looks at the first two prose paragraphs.
+  R2:
+    level: warn
+    enabled: true
+    paragraphs: 2
+
+  # ---- R3 specificity per 100 words ----------------------------------------------------------------
+  # warn: "smoke alarm, not a score" (RUBRIC §4). min_per_100 = 25th percentile of 18 human recaps
+  # (calibration, tables/19b). Target for good posts is 3+. Not applied under min_words (too short
+  # for a rate to mean anything; also avoids dividing by ~0).
+  R3:
+    level: warn
+    enabled: true
+    min_per_100: 1.2
+    min_words: 20
+
+  # ---- R4 generic bridge sentences ------------------------------------------------------------------
+  # warn: stylistic. Counts DISTINCT phrases from the list that occur (not occurrences), as the
+  # prototype did; more than max_allowed fails. The list is regexes found in Stylus drafts and cut
+  # (or never present) in the human versions. It is a living list — add phrases the critic/reviewers
+  # keep removing. Detector limits: matches wording, not meaning; paraphrases escape it; a legitimate
+  # use of a listed phrase (e.g. in a verbatim quote) is still counted.
+  R4:
+    level: warn
+    enabled: true
+    max_allowed: 1
+    phrases:
+      - 'does not require (perfect|us to)'
+      - 'These simple moments'
+      - 'not as an abstract idea'
+      - 'This is more than a kind phrase'
+      - 'This reminder speaks to'
+      - 'In a world (full of|where)'
+      - 'can be a (small but )?meaningful'
+      - 'a meaningful (morning|evening|gathering|day)'
+      - 'timeless (Buddhist )?(principles|teachings|wisdom)'
+      - 'gave way to stillness'
+      - 'Each person arrived with'
+      - 'helps strengthen the conditions'
+      - 'The value of a (meditation )?retreat is not only'
+      - 'can invite us to slow down'
+      - 'Rather than (approaching|treating)'
+      - 'offers a helpful foundation'
+      - 'not only something to learn about'
+      - 'A retreat does not require'
+      - 'we can meet (it|them) with (kindness|patience)'
+
+  # ---- R6 stock / template ending ------------------------------------------------------------------
+  # warn: stylistic. Two parts: (a) no stock closing strings anywhere in the body (the template
+  # sign-off travelled page -> Stylus example -> published again, PATTERNS §0); an unresolved
+  # placeholder also counts here, as RUBRIC R6 says (it is ALSO reported by R7 as hard);
+  # (b) the last `tail_paragraphs` prose paragraphs (or a link within the last `tail_lines` lines)
+  # must contain at least one concrete specific. One house blessing is fine (STYLE_GUIDE rule 19).
+  R6:
+    level: warn
+    enabled: true
+    tail_paragraphs: 3
+    tail_lines: 25
+    tail_link_regex: '\]\([^)]+\)'
+    stock_endings:
+      - 'follow our page and visit our website'
+      - 'May all beings be happy and free from suffering\. ?🙏'
+      - '\[\[internal link opportunity'
+
+  # ---- R7 placeholders / unresolved markup --------------------------------------------------------
+  # HARD: a placeholder in output is obviously broken and nothing else in the pipeline strips it
+  # (8 of 9 real drafts carried `[[internal link opportunity: …]]`, RUBRIC R7). Checked in the body,
+  # the title and every SEO field. TODO/lorem are matched as whole words so ordinary prose
+  # ("todos", "Dolores") is not flagged — the prototype's unanchored match was too loose for a hard rule.
+  R7:
+    level: hard
+    enabled: true
+    patterns:
+      - '\[\['
+      - '\bTODO\b'
+      - '\{\{'
+      - '(?i)\blorem ipsum\b'
+
+  # ---- R8 link syntax / anchors / duplicates (the parts that need no site service) -------------
+  # NOT implemented here (needs the site service / closed list): "link is on the list", "resolves",
+  # "anchor shares a content word with the target title", "first link is the program page" (R9).
+  #   R8a malformed link markup: HARD — a link that cannot render is broken output. Empty target,
+  #       empty anchor, unbalanced "](" / "[" "]" or a dangerous scheme (javascript:, data:, file:, vbscript:).
+  #   R8b generic anchor ("here", "website"): warn — style (published case: "website" -> home page).
+  #   R8c same target linked more than max_per_target times: warn — style (published case: the
+  #       program page linked 3 times).
+  R8:
+    level_malformed: hard
+    level_generic_anchor: warn
+    level_duplicate: warn
+    enabled: true
+    max_per_target: 1
+    generic_anchors: [here, website, link, click here, read more, this page, this link, learn more, more, page, site]
+    dangerous_schemes: ['javascript:', 'data:', 'file:', 'vbscript:']
+
+  # ---- R10 curator-prose retention ---------------------------------------------------------------
+  # warn: stylistic/heuristic (calibration: the human put 95-100% of curator prose back where Stylus
+  # kept 27% and 43%). If the pack has at least min_pack_words words, at least min_kept_pct percent of
+  # its words must survive in runs of >= run_words consecutive words (difflib, case-insensitive).
+  # `pack_fields` = which pack fields count as curator prose.
+  R10:
+    level: warn
+    enabled: true
+    min_pack_words: 100
+    min_kept_pct: 60
+    run_words: 6
+    pack_fields: [description, quote]
+
+  # ---- R11 quote verbatim; no invented speaker ----------------------------------------------------
+  # R11a warn: if the pack has a quote it should appear in the draft word-for-word. Comparison ignores
+  # case, curly-vs-straight quotes/apostrophes, whitespace, and edge punctuation; "typo fixes allowed"
+  # = a best-matching window of the draft with word-level similarity >= fuzzy_ratio passes (so a fixed
+  # typo does, a rewritten sentence does not).
+  # R11b warn: if the draft puts a named person next to the quote (honorific/name + a speech verb, or
+  # "— Name") the pack must name that person for the quote (pack field in `speaker_fields`, or the
+  # quote text itself). "Ask, don't assume" (RUBRIC R11). Detector limits: finds attributions by
+  # pattern (capitalised name run + speech verb within `window_chars` of the quote); it cannot tell
+  # whether an attribution is TRUE, only that the pack did not say it, and it cannot tell when a
+  # fragment such as "Beautiful fall weather" is not really a quotation (the critic's job, RUBRIC [C]).
+  R11:
+    level_verbatim: warn
+    level_speaker: warn
+    enabled: true
+    fuzzy_ratio: 0.85
+    window_chars: 140
+    speaker_fields: [speaker, quote_speaker, quote_source, quote_attribution]
+    name_honorifics: [Bhante, Bhanthe, Rev, Venerable, Ven, Dr, Mr, Mrs, Ms, Sister, Brother, Ajahn, Sayadaw]
+    speech_verbs: [said, says, shared, reminded, taught, teaches, offered, noted, explained, explains, asked,
+                   reflected, told, wrote, observed, added, encouraged, spoke, put it, reminds, remarked,
+                   emphasized, emphasised, expressed, recalled, cautioned, advised, described]
+
+  # ---- R12 spelling variants (house spelling "Bhante", owner decision D1) -----------------------------
+  # Never rewrites text; only reports where a wrong form is PRINTED. Not applied inside quotation marks,
+  # nor to a passage the curator wrote verbatim (a 24-character window around the hit that appears in
+  # the pack text) — R10 asks us to keep curator text, so the two rules must not fight.
+  #   never_print: HARD — these are misspellings of a person's or organisation's name; STYLE_GUIDE §6
+  #     "Never print a misspelt name" and PLUGIN_DESIGN §5 give them hard-outside-quotes. A later guard
+  #     is capped at 2 rejections, so a false positive costs two retries, not a stuck task.
+  #   prefer: warn — a legitimate-but-not-house form (title variants); the owner still has to confirm
+  #     the list (WORKLOG D1: "Bhante" everywhere on the website; the resident teacher's full form is
+  #     "Rev. Amitha Khema"). Add entries as the center confirms names.
+  R12:
+    level_never_print: hard
+    level_prefer: warn
+    enabled: true
+    never_print:
+      - {pattern: '\bBhanthe\b', use: 'Bhante'}
+      - {pattern: '\bBanthe\b', use: 'Bhante'}
+      - {pattern: '\bPanacara\b', use: 'Pannakara'}
+      - {pattern: '\bMahamewnawa\b', use: 'Mahamevnawa'}
+      - {pattern: '\bMahamewna\b', use: 'Mahamevnawa'}
+      - {pattern: '\bBuddhist Meditation Center\b', use: 'Buddha Meditation Center'}
+    prefer:
+      - {pattern: '\bVen(?:erable|\.)\s+(?:Bhante\s+)?Pannakara\b', use: 'Bhante Pannakara'}
+      - {pattern: '\bPannakara Thero\b', use: 'Bhante Pannakara'}
+      - {pattern: '\bVenerable Amitha Khema\b', use: 'Rev. Amitha Khema'}
+      - {pattern: '\bVen\. Amitha Khema\b', use: 'Rev. Amitha Khema'}
+    context_chars: 24
+
+  # ---- R13 padding vs pack length ------------------------------------------------------------------
+  # warn (it also feeds the later intake gate): when the pack is shorter than pack_words_below words the
+  # draft's prose may be at most max_ratio times as long. The fix is to ask for more input, not to
+  # rewrite (RUBRIC R13). Skipped when the pack has no text (e.g. a refine round).
+  R13:
+    level: warn
+    enabled: true
+    pack_words_below: 100
+    max_ratio: 4
+    pack_fields: [description, quote]
+
+  # ---- R14 headings ---------------------------------------------------------------------------------
+  # warn: stylistic (short recaps: median 1 heading, range 0-2). Counts markdown headings and
+  # heading-like lines (1..heading_max_words words, no closing punctuation) after the headline.
+  # Posts of below_words words or more are not judged (headings there are judged by hand).
+  R14:
+    level: warn
+    enabled: true
+    max_headings: 2
+    below_words: 550
+    heading_max_words: 9
+
+  # ---- R15 emoji ------------------------------------------------------------------------------------
+  # warn: stylistic (3 of 37 published posts use any emoji; at most one 🙏 at the close).
+  R15:
+    level: warn
+    enabled: true
+    max_emoji: 1
+    pattern: '[\U0001F300-\U0001FAFF☀-➿]'
+
+  # ---- R16 keyword repetition -----------------------------------------------------------------------
+  # warn: stylistic. (a) the focus keyword (the `focus_keyword` field) occurs at most max_focus_keyword
+  # times in the prose (case-insensitive substring count, as the prototype did); (b) no word n-gram
+  # (n = ngram_min..ngram_max) that contains at least one non-stopword repeats ngram_repeat times or more.
+  R16:
+    level: warn
+    enabled: true
+    max_focus_keyword: 3
+    ngram_min: 3
+    ngram_max: 5
+    ngram_repeat: 6
+    stopwords: >
+      a an and are as at be been but by for from had has have he her his i if in into is it its of on or
+      our so that the their them they this to was we were which who will with you your
