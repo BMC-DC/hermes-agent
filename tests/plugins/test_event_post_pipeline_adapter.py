@@ -12,6 +12,7 @@ from pathlib import Path
 
 import aiohttp
 import pytest
+import pytest_asyncio
 
 from gateway.config import PlatformConfig
 from hermes_cli import kanban_db as kb
@@ -40,7 +41,7 @@ def kanban_home(tmp_path, monkeypatch):
     return home
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def running_adapter(kanban_home, tmp_path):
     config = PlatformConfig(enabled=True, extra={
         "port": TEST_PORT, "secret": SECRET, "review_create_secret": "unused-in-these-tests",
@@ -164,34 +165,26 @@ async def test_retry_notify_requires_message(running_adapter):
 
 
 @pytest.mark.asyncio
-async def test_retry_notify_success(running_adapter, monkeypatch):
-    from plugins.platforms.event_post_pipeline import adapter as adapter_module
-
-    async def _fake_send(message):
-        return None
-
-    monkeypatch.setattr(adapter_module.whatsapp_notify, "send_whatsapp_link", _fake_send)
-    body = json.dumps({"taskId": "adapter-retry-1", "kind": "notify", "message": "please retry"}).encode()
-    async with aiohttp.ClientSession() as session:
-        async with session.post(f"http://127.0.0.1:{TEST_PORT}/retry", data=body, headers=_signed_headers(body)) as resp:
-            assert resp.status == 200
-            payload = await resp.json()
-            assert payload == {"status": "sent"}
-
-
-@pytest.mark.asyncio
-async def test_retry_notify_failure_returns_502(running_adapter, monkeypatch):
+async def test_retry_notify_does_not_send_whatsapp(running_adapter, monkeypatch):
+    """Since 2026-09-26 (6ad402c723) the WhatsApp send in /retry kind=notify is deliberately
+    disabled, so the route answers 200 ``sent`` without sending and a send failure cannot
+    surface (no 502). If the send is re-enabled, restore the success and 502 tests."""
     from plugins.platforms.event_post_pipeline import adapter as adapter_module
     from plugins.platforms.event_post_pipeline import whatsapp_notify
 
+    calls = []
+
     async def _fake_send(message):
+        calls.append(message)
         raise whatsapp_notify.WhatsAppNotifyError("no home channel configured")
 
     monkeypatch.setattr(adapter_module.whatsapp_notify, "send_whatsapp_link", _fake_send)
     body = json.dumps({"taskId": "adapter-retry-1", "kind": "notify", "message": "please retry"}).encode()
     async with aiohttp.ClientSession() as session:
         async with session.post(f"http://127.0.0.1:{TEST_PORT}/retry", data=body, headers=_signed_headers(body)) as resp:
-            assert resp.status == 502
+            assert resp.status == 200
+            assert await resp.json() == {"status": "sent"}
+    assert calls == []
 
 
 @pytest.mark.asyncio

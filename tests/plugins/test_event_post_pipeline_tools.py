@@ -216,26 +216,21 @@ def test_retry_handler_notify_requires_message(monkeypatch):
     assert "message" in out["error"]
 
 
-def test_retry_handler_notify_success(monkeypatch):
+def test_retry_handler_notify_does_not_send_whatsapp(monkeypatch):
+    """Since 2026-09-26 (6ad402c723) the WhatsApp send in the notify retry is deliberately
+    disabled, so the handler reports ``sent`` without sending and a send failure cannot
+    surface. If the send is re-enabled, restore the success/failure pair of tests."""
     monkeypatch.setattr(tools, "_load_pipeline_extra", lambda: {"port": 8645})
+    calls = []
 
     async def _fake_send(message):
-        return None
-
-    monkeypatch.setattr(tools.whatsapp_notify, "send_whatsapp_link", _fake_send)
-    out = json.loads(tools.social_post_retry_handler({"task_id": "t1", "kind": "notify", "message": "please retry"}))
-    assert out == {"status": "sent", "task_id": "t1"}
-
-
-def test_retry_handler_notify_failure_returns_tool_error(monkeypatch):
-    monkeypatch.setattr(tools, "_load_pipeline_extra", lambda: {"port": 8645})
-
-    async def _fake_send(message):
+        calls.append(message)
         raise tools.whatsapp_notify.WhatsAppNotifyError("no home channel configured")
 
     monkeypatch.setattr(tools.whatsapp_notify, "send_whatsapp_link", _fake_send)
     out = json.loads(tools.social_post_retry_handler({"task_id": "t1", "kind": "notify", "message": "please retry"}))
-    assert "error" in out
+    assert out == {"status": "sent", "task_id": "t1"}
+    assert calls == []
 
 
 def test_retry_handler_stylus_blocked_unblocks_task(kanban_home, monkeypatch):

@@ -127,11 +127,10 @@ def test_on_kanban_task_blocked_tracks_root_task_id_for_a_refine_round(monkeypat
     assert kwargs == {"title": "Redraft FB (round 2): X", "reason": "LLM call failed"}
 
 
-def test_on_kanban_task_blocked_alerts_the_group_with_a_visualizer_link(monkeypatch):
-    """A blocked task hasn't told anyone anything yet (unlike a failed notification,
-    which already attempted something and can be retried) — this is the one failure
-    mode that needs its own alert, decided 2026-09-21 after live testing found it
-    otherwise sat silently stuck with no signal to anyone."""
+def test_on_kanban_task_blocked_does_not_message_the_group(monkeypatch):
+    """Since 2026-09-26 (6ad402c723) lifecycle/status updates no longer go to the
+    WhatsApp group; the blocked-task alert in hooks.py is deliberately commented out.
+    The block is still tracked, and the group is not messaged."""
     sent = []
     monkeypatch.setattr(hooks, "_load_pipeline_extra", lambda: {"board": None, "review_base_url": "https://spp.buddhameditationdc.org"})
     monkeypatch.setattr(hooks.db, "resolve_database_url", lambda extra: "postgresql://x/y")
@@ -140,7 +139,8 @@ def test_on_kanban_task_blocked_alerts_the_group_with_a_visualizer_link(monkeypa
         kb, "get_task",
         lambda conn, task_id: _FakeTask(tenant=pipeline.TENANT, idempotency_key="root-1", title="Draft social copy: X"),
     )
-    monkeypatch.setattr(pipeline, "track_stylus_blocked", lambda *a, **kw: None)
+    tracked = []
+    monkeypatch.setattr(pipeline, "track_stylus_blocked", lambda *a, **kw: tracked.append(a))
 
     async def fake_send(message):
         sent.append(message)
@@ -149,11 +149,8 @@ def test_on_kanban_task_blocked_alerts_the_group_with_a_visualizer_link(monkeypa
 
     hooks.on_kanban_task_blocked(task_id="root-1", assignee="stylus", reason="LLM call failed")
 
-    assert len(sent) == 1
-    assert "root-1" in sent[0]
-    assert "https://spp.buddhameditationdc.org/visualizer?taskId=root-1" in sent[0]
-    assert "LLM call failed" in sent[0]
-    assert "Draft social copy: X" in sent[0]
+    assert sent == []
+    assert len(tracked) == 1
 
 
 def test_on_kanban_task_blocked_alert_failure_never_raises(monkeypatch):
