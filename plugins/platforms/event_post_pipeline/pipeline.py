@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from plugins.platforms.event_post_pipeline import db
+from plugins.platforms.event_post_pipeline.fence import defuse_fence_tags
 from plugins.platforms.event_post_pipeline.review_client import (
     ReviewClientConfig, ReviewClientError, create_review, slug_from_review_url, update_review,
 )
@@ -77,15 +78,19 @@ def _short_title(description: str) -> str:
 def _wrap_untrusted(event_pack: dict[str, Any]) -> str:
     """Same defensive framing the skill file's webhook prompt used: the fields inside
     came from a public form and must never be read as instructions by anything that
-    later reads this task body (Stylus is itself an LLM)."""
+    later reads this task body (Stylus is itself an LLM).
+
+    Every interpolated value goes through ``defuse_fence_tags`` so the text cannot
+    close or nest the fence (a no-op for text without a fence tag, so ordinary
+    submissions render byte-for-byte as before)."""
     lines = [
         "<untrusted_submission>",
-        f"Date: {event_pack.get('date', '')}",
-        f"Description: {event_pack.get('description', '')}",
-        f"Quote: {event_pack.get('quote', '')}",
-        f"First photo: {(event_pack.get('first') or {}).get('finalUrl', '')}",
-        f"Last photo: {(event_pack.get('last') or {}).get('finalUrl', '')}",
-        f"Rest: {[r.get('finalUrl') for r in (event_pack.get('rest') or [])]}",
+        f"Date: {defuse_fence_tags(event_pack.get('date', ''))}",
+        f"Description: {defuse_fence_tags(event_pack.get('description', ''))}",
+        f"Quote: {defuse_fence_tags(event_pack.get('quote', ''))}",
+        f"First photo: {defuse_fence_tags((event_pack.get('first') or {}).get('finalUrl', ''))}",
+        f"Last photo: {defuse_fence_tags((event_pack.get('last') or {}).get('finalUrl', ''))}",
+        f"Rest: {defuse_fence_tags([r.get('finalUrl') for r in (event_pack.get('rest') or [])])}",
         "</untrusted_submission>",
     ]
     return "\n".join(lines)
@@ -242,7 +247,7 @@ def handle_intake(
     description = str(event_pack.get("description") or "")
     title = _short_title(description) if description else submission_id
     task_id = ops.create_task(
-        conn, title=f"Draft social copy: {title}", body=_wrap_untrusted(event_pack),
+        conn, title=f"Draft social copy: {defuse_fence_tags(title)}", body=_wrap_untrusted(event_pack),
         assignee="stylus", idempotency_key=submission_id, tenant=TENANT, created_by=CREATED_BY,
     )
     # Visualizer: "intake received" and "Stylus task created" both happen at this exact
@@ -475,7 +480,7 @@ def handle_review_action(
         )
 
     if action in ("approved", "rejected"):
-        outcome_line = f"{platform.upper()} {action.upper()} via review page: {comment}" if comment else f"{platform.upper()} {action.upper()} via review page"
+        outcome_line = f"{platform.upper()} {action.upper()} via review page: {defuse_fence_tags(comment)}" if comment else f"{platform.upper()} {action.upper()} via review page"
         ops.add_comment(conn, current_task.id, CREATED_BY, outcome_line)
         # Deliberately does NOT touch pipeline_runs' state/current_step: social-post-portal
         # owns deciding when a submission is fully done (see db.py's ownership-boundary
@@ -505,7 +510,7 @@ def handle_review_action(
         idempotency_key = f"{task_id}-{platform}-r{next_round}"
         body = _refine_task_body(record=record, platform=platform, previous_draft=previous_draft, comment=comment)
         new_task_id = ops.create_task(
-            conn, title=f"Redraft {platform.upper()} (round {next_round}): {root_task.title.removeprefix('Draft social copy: ')}",
+            conn, title=f"Redraft {platform.upper()} (round {next_round}): {defuse_fence_tags(root_task.title.removeprefix('Draft social copy: '))}",
             body=body, assignee="stylus", idempotency_key=idempotency_key, tenant=TENANT, created_by=CREATED_BY,
         )
         store.upsert_submission(store_key, {"rounds": {platform: {"task_id": new_task_id, "round": next_round, "status": "in_progress"}}})
@@ -546,7 +551,7 @@ def _handle_manual_edit(
             f"Supporting keywords: {', '.join(edited_seo.get('supportingKeywords') or [])}\n"
             f"Meta description: {edited_seo.get('metaDescription', '')}"
         )
-    ops.add_comment(conn, current_task.id, CREATED_BY, "\n\n".join(lines))
+    ops.add_comment(conn, current_task.id, CREATED_BY, defuse_fence_tags("\n\n".join(lines)))
     record = store.find_by_task_id(root_task.id) or store.get_submission(root_task.id) or {}
     store_key = record.get("submission_id") or root_task.id
     store.upsert_submission(
@@ -570,12 +575,12 @@ def _refine_task_body(*, record: dict[str, Any], platform: str, previous_draft: 
     return "\n\n".join(
         part for part in (
             "<untrusted_submission>",
-            f"Date: {record.get('date', '')}",
-            f"Description: {record.get('description', '')}",
-            f"Quote: {record.get('quote', '')}",
+            f"Date: {defuse_fence_tags(record.get('date', ''))}",
+            f"Description: {defuse_fence_tags(record.get('description', ''))}",
+            f"Quote: {defuse_fence_tags(record.get('quote', ''))}",
             "</untrusted_submission>",
-            f"Previous {platform.upper()} draft:\n{previous_draft}",
-            f"Requested change (reviewer's own words):\n{comment}",
+            f"Previous {platform.upper()} draft:\n{defuse_fence_tags(previous_draft)}",
+            f"Requested change (reviewer's own words):\n{defuse_fence_tags(comment)}",
             f"Only the {platform.upper()} content needs to be redrafted — the other platforms are "
             "unaffected and already handled separately.",
         ) if part
