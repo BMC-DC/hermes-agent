@@ -6,7 +6,10 @@
 Default log: ``$EVENT_POST_PIPELINE_SHADOW_LOG``, else ``$HERMES_HOME/blog_shadow.jsonl`` (inside the container ``/opt/data``; on the host
 ``/home/bmc/.hermes/blog_shadow.jsonl``), else ``./blog_shadow.jsonl``. For each submission it prints: the intake summary and the links the
 site service suggested, the links each Stylus draft actually used (suggested / not suggested / suggested but unused), lint findings, the
-verify-links verdict, what the reviewer finally approved (kept / removed / added versus the last draft) and ``missing_info``. A summary
+verify-links verdict, what the reviewer finally approved (kept / removed / added versus the last draft) and ``missing_info``. When the research
+step was on it also prints, per submission, the research outcome (done / nothing_useful / invalid / timeout / blocked / skipped, durations, item
+counts, dropped items, brief sha, whether it was handed to the blog) and the summary splits submissions by whether their blog got a brief
+(the simple before/after switch: median blog words, lint hard/warn, links used from the brief, reviewer outcomes). A summary
 at the end gives the rates worth watching. Everything printed is control-character-free (submission text is untrusted).
 """
 from __future__ import annotations
@@ -63,6 +66,8 @@ def analyse(recs):
     comps = [r for r in recs if r["kind"] == "completion"]
     acts = [r for r in recs if r["kind"] == "review_action"]
     it = intake[-1] if intake else None
+    rstart = [r for r in recs if r["kind"] == "research"]
+    rres = [r for r in recs if r["kind"] == "research_result"]
     suggested = OrderedDict()
     if it and it.get("ok"):
         for c in it.get("links") or []:
@@ -74,7 +79,7 @@ def analyse(recs):
         used = [norm(l.get("url")) for l in c.get("draft_links") or []]
         rounds.append({"round": c.get("round"), "used": used, "used_suggested": [u for u in used if u in suggested], "used_not_suggested": [u for u in used if u not in suggested],
                        "suggested_unused": [u for u in suggested if u not in used] if it and it.get("ok") else None, "lint": c.get("lint"), "findings": c.get("findings") or [],
-                       "verify": c.get("verify_links"), "body_words": c.get("body_words")})
+                       "verify": c.get("verify_links"), "body_words": c.get("body_words"), "brief": c.get("brief")})
     # the reviewer's last approved/edited text vs the draft that was current when it was approved (records are in file = time order)
     approved = draft_then = None
     current = None
@@ -88,7 +93,27 @@ def analyse(recs):
     if final is not None and draft_then is not None:
         outcome = {"kept": [u for u in draft_then if u in final], "removed_by_reviewer": [u for u in draft_then if u not in final], "added_by_reviewer": [u for u in final if u not in draft_then],
                    "manual_edit": bool(approved.get("text_is_manual_edit")), "final_suggested": [u for u in final if u in suggested], "final_not_suggested": [u for u in final if u not in suggested]}
-    return {"intake": it, "suggested": list(suggested.values()), "rounds": rounds, "actions": [{"action": a.get("action"), "ts": a.get("ts")} for a in acts], "approved_links": final, "outcome": outcome}
+    return {"intake": it, "research": {"start": rstart[-1] if rstart else None, "result": rres[-1] if rres else None},
+            "suggested": list(suggested.values()), "rounds": rounds, "actions": [{"action": a.get("action"), "ts": a.get("ts")} for a in acts], "approved_links": final, "outcome": outcome}
+
+
+def research_lines(start, result):
+    out = []
+    if start:
+        out.append(f"  research: task {clean(start.get('research_task_id') or '(none)', 30)} service_ok={start.get('service_ok')} handoff={start.get('handoff')} "
+                   f"allowed_urls={start.get('allowed_urls_n')} corpus {clean(start.get('corpus_hash'), 12)} {start.get('latency_ms')} ms")
+    if result:
+        secs = lambda v: "n/a" if v is None else f"{v:g} s"  # noqa: E731
+        it = result.get("items") or {}
+        out.append(f"    result: {clean(result.get('outcome'), 20)}" + (f" ({clean(result.get('reason'), 60)})" if result.get("reason") else "")
+                   + f"; took {secs(result.get('duration_s'))} (queued {secs(result.get('queue_s'))}, ran {secs(result.get('run_s'))}); "
+                   + (", ".join(f"{clean(k, 20)}={v}" for k, v in it.items()) or "no items")
+                   + f"; brief {clean(result.get('brief_sha'), 10) or '-'} delivered={result.get('delivered')}"
+                   + (f" before_claim={result.get('delivered_before_claim')}" if result.get("delivered_before_claim") is not None else "")
+                   + f"; guard_rejections={result.get('guard_rejections')} web_wanted={result.get('web_wanted')}")
+        for d in (result.get("dropped") or [])[:6]:
+            out.append(f"    dropped {clean(d.get('section'), 50)}: {clean(d.get('reason'), 30)}")
+    return out
 
 
 def show(tid, a, w):
@@ -105,12 +130,19 @@ def show(tid, a, w):
                 w(f"    missing [{'required' if m.get('required') else 'optional'}] {clean(m.get('field'), 30)}: {clean(m.get('why'), 100)}")
         else:
             w(f"  site service NOT available at intake: {clean(it.get('reason'), 80)} ({it.get('latency_ms')} ms)")
+    rs = a.get("research") or {}
+    if rs.get("start") or rs.get("result"):
+        for line in research_lines(rs.get("start"), rs.get("result")):
+            w(line)
     if a["suggested"]:
         w("  suggested links:")
         for s in a["suggested"]:
             w(f"    [{clean(s['tier'], 8)}/{clean(s['kind'], 20)}] {clean(s['url'], 100)}")
     for r in a["rounds"]:
         w(f"  draft round {r['round']}: {len(r['used'])} link(s), {r['body_words']} words")
+        if r.get("brief"):
+            b = r["brief"]
+            w(f"    brief: delivered={b.get('delivered')} sha {clean(b.get('sha'), 10) or '-'}; links used from the brief {b.get('links_used')}/{b.get('links_offered')}")
         for u in r["used_suggested"]:
             w(f"    used, suggested:      {clean(u, 100)}")
         for u in r["used_not_suggested"]:
@@ -150,6 +182,54 @@ def summary(results):
             final_total += len(a["outcome"]["final_suggested"]) + len(a["outcome"]["final_not_suggested"])
             final_sug += len(a["outcome"]["final_suggested"])
     pct = lambda x, y: f"{100 * x / y:.0f}%" if y else "n/a"
+    return base_summary(n, ok, pct, used_sug, used, suggested_total, final_sug, final_total) + brief_summary(results)
+
+
+def _median(xs):
+    xs = sorted(xs)
+    if not xs:
+        return None
+    mid = len(xs) // 2
+    return xs[mid] if len(xs) % 2 else (xs[mid - 1] + xs[mid]) / 2
+
+
+def brief_summary(results):
+    """Before/after switch: submissions whose last blog draft had a delivered research brief vs the rest. Printed only when the
+    research step left any trace in the log (so a log without research renders exactly as before)."""
+    if not any((a.get("research") or {}).get("start") or (a.get("research") or {}).get("result") or any(r.get("brief") for r in a["rounds"])
+               for a in results.values()):
+        return []
+    cohorts = {"with brief": [], "without brief": []}
+    for a in results.values():
+        last = a["rounds"][-1] if a["rounds"] else None
+        if last is None:
+            continue
+        delivered = bool((last.get("brief") or {}).get("delivered"))
+        cohorts["with brief" if delivered else "without brief"].append((a, last))
+    out = ["RESEARCH BRIEF (before/after: submissions whose last blog draft had a delivered brief vs not):"]
+    outcomes = {}
+    for a in results.values():
+        res = (a.get("research") or {}).get("result")
+        if res:
+            outcomes[res.get("outcome")] = outcomes.get(res.get("outcome"), 0) + 1
+    out.append("  research outcomes: " + (", ".join(f"{clean(k, 20)}={v}" for k, v in sorted(outcomes.items(), key=lambda kv: str(kv[0]))) or "none"))
+    for name, rows in cohorts.items():
+        if not rows:
+            out.append(f"  {name}: 0 submission(s)")
+            continue
+        words = [last.get("body_words") for _, last in rows if isinstance(last.get("body_words"), int)]
+        hard = sum((last.get("lint") or {}).get("hard") or 0 for _, last in rows)
+        warn = sum((last.get("lint") or {}).get("warn") or 0 for _, last in rows)
+        used = sum(((last.get("brief") or {}).get("links_used") or 0) for _, last in rows)
+        offered = sum(((last.get("brief") or {}).get("links_offered") or 0) for _, last in rows)
+        acts = [x.get("action") for a, _ in rows for x in a["actions"]]
+        edited = sum(1 for a, _ in rows if a["outcome"] and a["outcome"].get("manual_edit"))
+        out.append(f"  {name}: {len(rows)} submission(s); median blog words {_median(words) if words else 'n/a'}; lint hard {hard}, warn {warn}; "
+                   f"links used from the brief {used}/{offered}; reviewer: approved {acts.count('approved')}, edited {edited}, refine {acts.count('refine')}, rejected {acts.count('rejected')}")
+    return out
+
+
+def base_summary(n, ok, pct, used_sug, used, suggested_total, final_sug, final_total):
     return [f"SUMMARY: {n} submission(s); site service answered at intake for {ok} ({pct(ok, n)}).",
             f"  last draft links that were suggested: {used_sug}/{used} ({pct(used_sug, used)}); suggestions offered in total: {suggested_total}.",
             f"  reviewer-approved links that were suggested: {final_sug}/{final_total} ({pct(final_sug, final_total)})."]

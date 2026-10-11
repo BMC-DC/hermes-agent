@@ -244,6 +244,7 @@ def run_research_sweep(now: Optional[float] = None) -> list[dict]:
             return research.sweep(
                 conn, pipeline.KanbanOps(kb), store, now=time.time() if now is None else now, tenant=pipeline.TENANT,
                 author=pipeline.CREATED_BY, default_deadline_s=research.ResearchConfig.from_extra(extra).deadline_s, database_url=db_url,
+                shadow=_shadow_recorder(extra, store),
             )
         finally:
             conn.close()

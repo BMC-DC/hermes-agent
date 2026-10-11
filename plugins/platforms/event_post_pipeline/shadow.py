@@ -23,7 +23,8 @@ Guarantees (each has a test in ``tests/plugins/test_event_post_pipeline_shadow.p
   recorded (only its length).
 
 Record file: ``blog_shadow.jsonl`` next to the plugin store (``store_path``), or ``blog_enrichment.shadow.log_path``. One JSON object per
-line, ``schema: 1``, kinds ``intake`` | ``completion`` | ``review_action``; related lines share ``task_id`` (the root Stylus task id).
+line, ``schema: 1``, kinds ``intake`` | ``completion`` | ``review_action`` | ``research`` | ``research_result`` (research step, DESIGN_11 2.6);
+related lines share ``task_id`` (the root Stylus task id).
 Read it with ``vps-scripts/shadow-report.py`` (see that script's header).
 """
 
@@ -66,6 +67,7 @@ _write_lock = threading.Lock()
 class ShadowConfig:
     site_context: bool = False
     lint: bool = False
+    research: bool = False                # ``blog_enrichment.research.enabled``: record the research step's start and result
     timeout_s: float = DEFAULT_TIMEOUT_S
     service_url: str = ""
     log_path: Optional[str] = None
@@ -73,15 +75,19 @@ class ShadowConfig:
 
     @property
     def enabled(self) -> bool:
-        return self.site_context or self.lint
+        return self.site_context or self.lint or self.research
 
     @classmethod
     def from_extra(cls, extra: Optional[dict[str, Any]]) -> "ShadowConfig":
         """From ``platforms.event_post_pipeline.extra``. Anything missing, mistyped or not the literal ``True`` is OFF."""
         be = (extra or {}).get("blog_enrichment")
+        rc = be.get("research") if isinstance(be, dict) else None
+        research = isinstance(rc, dict) and rc.get("enabled") is True
         sh = be.get("shadow") if isinstance(be, dict) else None
         if not isinstance(sh, dict):
-            return cls()
+            sh = {}
+            if not research:
+                return cls()
         timeout = sh.get("timeout_s", DEFAULT_TIMEOUT_S)
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout <= MAX_TIMEOUT_S:
             timeout = DEFAULT_TIMEOUT_S
@@ -91,7 +97,7 @@ class ShadowConfig:
             url = ss.get("url") if isinstance(ss, dict) else ""
         log_path = sh.get("log_path")
         return cls(
-            site_context=sh.get("site_context") is True, lint=sh.get("lint") is True, timeout_s=float(timeout),
+            site_context=sh.get("site_context") is True, lint=sh.get("lint") is True, research=research, timeout_s=float(timeout),
             service_url=url if isinstance(url, str) else "", log_path=log_path if isinstance(log_path, str) and log_path.strip() else None,
         )
 
@@ -99,6 +105,10 @@ class ShadowConfig:
 # ------------------------------------------------------------------ small helpers (pure)
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _int(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 def clean(value: Any, limit: int) -> str:
@@ -217,7 +227,7 @@ class ShadowRecorder:
         record = {"schema": SCHEMA, "ts": _now(), **record}
         line = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
         if len(line.encode("utf-8")) > MAX_LINE_BYTES:      # drop the bulky parts first, keep the verdict
-            for key in ("passages", "links", "findings", "verify_links", "optional_links"):
+            for key in ("passages", "links", "findings", "verify_links", "optional_links", "dropped"):
                 record.pop(key, None)
             record["truncated_record"] = True
             line = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
@@ -294,17 +304,22 @@ class ShadowRecorder:
         self._append(rec)
 
     # -- 2. completion
-    def record_completion(self, *, task_id: str, platform: str, round_no: Optional[int], blog: Any, pack: Optional[dict[str, Any]]) -> None:
+    def record_completion(self, *, task_id: str, platform: str, round_no: Optional[int], blog: Any, pack: Optional[dict[str, Any]],
+                          brief: Optional[dict[str, Any]] = None) -> None:
         if not self.config.lint:
             return
-        self._safe("completion", self._completion, task_id, platform, round_no, blog, pack or {})
+        self._safe("completion", self._completion, task_id, platform, round_no, blog, pack or {}, brief)
 
-    def _completion(self, task_id: str, platform: str, round_no: Optional[int], blog: Any, pack: dict[str, Any]) -> None:
+    def _completion(self, task_id: str, platform: str, round_no: Optional[int], blog: Any, pack: dict[str, Any],
+                    brief: Optional[dict[str, Any]] = None) -> None:
         from plugins.platforms.event_post_pipeline.blog_lint import lint_blog
 
         rec: dict[str, Any] = {"kind": "completion", "task_id": clean(task_id, 80), "platform": clean(platform, 8), "round": round_no,
                                "blog_shape": "object" if isinstance(blog, dict) else "string" if isinstance(blog, str) else type(blog).__name__,
                                "body_words": len(_blog_text(blog).split()), "draft_links": extract_links(_blog_text(blog))}
+        if isinstance(brief, dict):  # research step: was a brief delivered to this blog task, and how much of it did the draft use
+            rec["brief"] = {"delivered": bool(brief.get("delivered")), "sha": clean(brief.get("sha"), 12) or None,
+                            "links_offered": _int(brief.get("links_offered")), "links_used": _int(brief.get("links_used"))}
         try:
             rep = lint_blog(blog, {k: pack.get(k) for k in ("date", "description", "quote") if pack.get(k)})
             findings = [f for f in (rep.get("findings") or []) if isinstance(f, dict)]
@@ -346,6 +361,43 @@ class ShadowRecorder:
             return None
         ids = [x.get("page_id") for x in (last.get("links") or []) + (last.get("optional_links") or []) if isinstance(x, dict) and x.get("page_id")]
         return sorted(set(ids))
+
+    # -- 2b. research step (flag research.enabled)
+    def record_research_start(self, *, submission_id: str, task_id: str, research_task_id: Optional[str], service_ok: bool, corpus_hash: str,
+                              allowed_urls_n: int, handoff: bool, reason: Optional[str] = None, latency_ms: Optional[int] = None) -> None:
+        if not self.config.research:
+            return
+        self._safe("research", self._research_start, submission_id, task_id, research_task_id, service_ok, corpus_hash, allowed_urls_n, handoff, reason, latency_ms)
+
+    def _research_start(self, submission_id, task_id, research_task_id, service_ok, corpus_hash, allowed_urls_n, handoff, reason, latency_ms) -> None:
+        self._append({"kind": "research", "submission_id": clean(submission_id, 80), "task_id": clean(task_id, 80),
+                      "research_task_id": clean(research_task_id, 80) or None, "service_ok": bool(service_ok), "corpus_hash": clean(corpus_hash, 40),
+                      "allowed_urls_n": _int(allowed_urls_n), "handoff": bool(handoff), "latency_ms": latency_ms if isinstance(latency_ms, int) else None})
+        if research_task_id is None:  # no R: the outcome is already known
+            self._append({"kind": "research_result", "task_id": clean(task_id, 80), "outcome": "skipped", "reason": clean(reason, 120)})
+
+    def record_research_result(self, *, task_id: Optional[str], research_task_id: str, outcome: str, reason: Optional[str] = None,
+                               duration_s: Optional[float] = None, queue_s: Optional[float] = None, run_s: Optional[float] = None,
+                               items: Optional[dict[str, Any]] = None, dropped: Optional[list[dict[str, Any]]] = None,
+                               brief_sha: Optional[str] = None, delivered: bool = False, delivered_before_claim: Optional[bool] = None,
+                               guard_rejections: int = 0, web_wanted: bool = False) -> None:
+        if not self.config.research or not task_id:
+            return
+        self._safe("research_result", self._research_result, task_id, research_task_id, outcome, reason, duration_s, queue_s, run_s, items,
+                   dropped, brief_sha, delivered, delivered_before_claim, guard_rejections, web_wanted)
+
+    def _research_result(self, task_id, research_task_id, outcome, reason, duration_s, queue_s, run_s, items, dropped, brief_sha, delivered,
+                         delivered_before_claim, guard_rejections, web_wanted) -> None:
+        sec = lambda v: round(float(v), 1) if isinstance(v, (int, float)) and not isinstance(v, bool) else None  # noqa: E731
+        self._append({
+            "kind": "research_result", "task_id": clean(task_id, 80), "research_task_id": clean(research_task_id, 80),
+            "outcome": clean(outcome, 20), "reason": clean(reason, 120) or None, "duration_s": sec(duration_s), "queue_s": sec(queue_s), "run_s": sec(run_s),
+            "items": {clean(k, 30): _int(v) for k, v in list((items or {}).items())[:8]},
+            "dropped": [{"section": clean(d.get("section"), 60), "reason": clean(d.get("reason"), 30)} for d in (dropped or [])[:MAX_FINDINGS] if isinstance(d, dict)],
+            "brief_sha": clean(brief_sha, 12) or None, "delivered": bool(delivered),
+            "delivered_before_claim": delivered_before_claim if isinstance(delivered_before_claim, bool) else None,
+            "guard_rejections": _int(guard_rejections), "web_wanted": bool(web_wanted),
+        })
 
     # -- 3. reviewer outcome
     def record_review_action(self, *, task_id: str, platform: str, action: str, comment: str, final_text: Optional[str], edited: bool) -> None:

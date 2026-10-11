@@ -373,11 +373,21 @@ def handle_intake(
         store.join_init(submission_id, blog_task_id)
     if plan is not None:
         _record_research_start(
-            store, database_url, submission_id, task_id, research_task_id, plan, handoff, blog_task_id, research.config,
+            store, database_url, submission_id, task_id, research_task_id, plan, handoff, blog_task_id, research.config, shadow,
         )
     _shadow_call(shadow, "record_intake", submission_id=submission_id, task_id=task_id, event_pack=event_pack)
     logger.info("event_post_pipeline: intake submission=%s -> task=%s", submission_id, task_id)
     return task_id
+
+
+def _brief_kwargs(record: Optional[dict[str, Any]], blog: Any) -> dict[str, Any]:
+    """``{"brief": {...}}`` for the shadow completion record when the submission had a research step, else nothing (so flags-off
+    calls are exactly what they were)."""
+    try:
+        info = _research.brief_info(record, blog) if (record or {}).get("research") else None
+    except Exception:  # noqa: BLE001
+        return {}
+    return {"brief": info} if info else {}
 
 
 def _task_with_key(conn, ops: KanbanOps, idempotency_key: str):
@@ -413,7 +423,7 @@ def _create_research_task(conn, ops: KanbanOps, research, submission_id: str, ev
 
 def _record_research_start(
     store, database_url, submission_id: str, root_task_id: str, research_task_id: Optional[str], plan, handoff: bool,
-    blog_task_id: Optional[str], cfg,
+    blog_task_id: Optional[str], cfg, shadow: Any = None,
 ) -> None:
     """Store + visualizer events for the research outcome at intake. Best effort."""
     try:
@@ -429,6 +439,11 @@ def _record_research_start(
             )
         else:
             _track_event_only(database_url, root_task_id, "research_skipped", "info", detail=plan.reason)
+        _shadow_call(
+            shadow, "record_research_start", submission_id=submission_id, task_id=root_task_id, research_task_id=research_task_id,
+            service_ok=plan.service_ok, corpus_hash=plan.corpus_hash, allowed_urls_n=len(plan.allowed_urls), handoff=handoff,
+            reason=plan.reason, latency_ms=plan.latency_ms,
+        )
     except Exception:  # noqa: BLE001
         logger.exception("event_post_pipeline: research bookkeeping failed for submission=%s", submission_id)
 
@@ -555,7 +570,7 @@ def _handle_first_round_completion(
     record = store.get_submission(task.idempotency_key) or {}
     blog = metadata["blog"]
     event_title = str(metadata.get("event_title") or _short_title(record.get("description") or task.title))
-    _shadow_call(shadow, "record_completion", task_id=task.id, platform="blog", round_no=1, blog=blog, pack=record)
+    _shadow_call(shadow, "record_completion", task_id=task.id, platform="blog", round_no=1, blog=blog, pack=record, **_brief_kwargs(record, blog))
     try:
         review_url = create_review(
             review_config, task_id=task.id, event_title=event_title, date=record.get("date", ""),
@@ -589,7 +604,8 @@ def _handle_refine_round_completion(
     if platform == "blog":
         _rm = _REFINE_IDEMPOTENCY_RE.match(task.idempotency_key or "")
         _shadow_call(shadow, "record_completion", task_id=(record or {}).get("root_task_id") or (_rm.group("root") if _rm else task.id), platform="blog",
-                     round_no=(1 if first_draft else int(_rm.group("round")) + 1) if _rm else None, blog=blog, pack=record)
+                     round_no=(1 if first_draft else int(_rm.group("round")) + 1) if _rm else None, blog=blog, pack=record,
+                     **_brief_kwargs(record, blog))
     text = blog["body"] if platform == "blog" else metadata[platform]
     seo = _blog_seo_payload(blog) if platform == "blog" else None
     try:
@@ -693,7 +709,7 @@ def _handle_split_blog_completion(
     half = {"task_id": task.id, "blog": blog, "event_title": event_title, "completed_at": now}
     record, newly = store.join_store_half(submission_id, "blog", half)
     if newly:
-        _shadow_call(shadow, "record_completion", task_id=root_task_id, platform="blog", round_no=1, blog=blog, pack=record)
+        _shadow_call(shadow, "record_completion", task_id=root_task_id, platform="blog", round_no=1, blog=blog, pack=record, **_brief_kwargs(record, blog))
         if not record["join"].get("social"):
             _track_event_only(database_url, root_task_id, "join_waiting", "info", detail="Blog draft done; waiting for the Facebook/Instagram drafts")
     return _advance_join(conn, ops, store, review_config, submission_id, now, database_url, shadow)

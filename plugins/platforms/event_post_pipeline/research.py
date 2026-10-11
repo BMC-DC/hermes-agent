@@ -397,11 +397,62 @@ def handle_research_completion(
         store.upsert_submission(sid, {"research": patch})
     except Exception:  # noqa: BLE001
         logger.exception("event_post_pipeline: could not store research outcome for %s", sid)
+    root = (store.get_submission(sid) or {}).get("root_task_id")
+    items = _item_counts(clean)
+    took = _seconds(getattr(task, "completed_at", None), getattr(task, "started_at", None))
+    _emit_completion_event(database_url, root, outcome, took, items, clean, delivered)
+    if shadow is not None:
+        blog_started = None
+        if blog_id:
+            bt = ops.get_task(conn, blog_id)
+            blog_started = getattr(bt, "started_at", None)
+        try:
+            shadow.record_research_result(
+                task_id=root, research_task_id=task_id, outcome=outcome, duration_s=_seconds(getattr(task, "completed_at", None), getattr(task, "created_at", None)),
+                queue_s=_seconds(getattr(task, "started_at", None), getattr(task, "created_at", None)), run_s=took, items=items,
+                dropped=[f.as_dict() for f in findings], brief_sha=rendered.sha, delivered=delivered,
+                delivered_before_claim=(blog_started is None) if delivered else None, guard_rejections=_REJECTIONS.get(task_id, 0),
+                web_wanted=bool((clean.get("research_brief") or {}).get("web_request")),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("event_post_pipeline: shadow research_result failed (%s); ignored", type(exc).__name__)
     return {
-        "action": "research_done", "task_id": task_id, "root_task_id": (store.get_submission(sid) or {}).get("root_task_id"),
+        "action": "research_done", "task_id": task_id, "root_task_id": root,
         "outcome": outcome, "delivered": delivered, "sha": rendered.sha, "findings": len(findings), "submission_id": sid,
-        "items": _item_counts(clean),
+        "items": items,
     }
+
+
+def _seconds(later: Any, earlier: Any) -> Optional[float]:
+    if isinstance(later, (int, float)) and isinstance(earlier, (int, float)) and later >= earlier:
+        return float(later - earlier)
+    return None
+
+
+def _plural(n: int, one: str, many: Optional[str] = None) -> str:
+    return f"{n} {one if n == 1 else (many or one + 's')}"
+
+
+def _emit_completion_event(database_url, root, outcome, took, items, clean, delivered) -> None:
+    """``research_done`` (ok) for a usable or empty-but-valid brief, ``research_failed`` (error) when there was no usable answer at
+    all. Visualizer events only; they never touch ``pipeline_runs`` state (never ``blocked``)."""
+    secs = f"took {int(round(took))} s - " if took is not None else ""
+    if outcome == "invalid":
+        _emit(database_url, root, "research_failed", "error", "no brief (invalid); blog continues without it")
+        return
+    if outcome == "nothing_useful":
+        _emit(database_url, root, "research_done", "ok", f"{secs}nothing useful for this post; blog continues without a brief")
+        return
+    counts = ", ".join([
+        _plural(items["suggested_links"] + items["related_posts"], "link"), _plural(items["teaching_background"], "teaching note"),
+        _plural(items["cautions"], "caution"),
+    ])
+    rb = clean.get("research_brief") or {}
+    titles = [str(p.get("title")) for p in (rb.get("related_posts") or [])[:3] if isinstance(p, dict) and p.get("title")]
+    detail = f"{secs}{counts} - {'handed to blog' if delivered else 'shadow only'}"
+    if titles:
+        detail += " - " + "; ".join(titles)
+    _emit(database_url, root, "research_done", "ok", detail[:480])
 
 
 def _item_counts(clean: dict[str, Any]) -> dict[str, int]:
@@ -473,7 +524,7 @@ def _root_for(store, sid: str, blog_ids: list[str], ops, conn) -> Optional[str]:
 
 def sweep(
     conn, ops, store, *, now: float, tenant: str, author: str, default_deadline_s: float = 360.0,
-    database_url: Optional[str] = None,
+    database_url: Optional[str] = None, shadow: Any = None,
 ) -> list[dict[str, Any]]:
     """Returns one dict per research task it retired. Never raises (one bad task must not stop the others)."""
     retired: list[dict[str, Any]] = []
@@ -507,8 +558,16 @@ def sweep(
                                                            "completed_at": now}})
             except Exception:  # noqa: BLE001
                 logger.exception("event_post_pipeline: could not store research sweep outcome for %s", sid)
-            _emit(database_url, _root_for(store, sid, blog_ids, ops, conn), step, "error",
-                  f"no brief ({why}); blog continues without it")
+            root = _root_for(store, sid, blog_ids, ops, conn)
+            _emit(database_url, root, step, "error", f"no brief ({why}); blog continues without it")
+            if shadow is not None:
+                try:
+                    shadow.record_research_result(
+                        task_id=root, research_task_id=t.id, outcome="blocked" if why == "blocked" else "timeout", reason=why, duration_s=age,
+                        queue_s=_seconds(getattr(t, "started_at", None), getattr(t, "created_at", None)) if getattr(t, "started_at", None) else age,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("event_post_pipeline: shadow research_result failed (%s); ignored", type(exc).__name__)
             retired.append({"action": "research_retired", "task_id": t.id, "submission_id": sid, "reason": why, "event": step,
                             "unlinked": blog_ids})
         except Exception:  # noqa: BLE001
@@ -533,3 +592,23 @@ def track_claim(conn, ops, store, task_id: str, *, tenant: str, database_url: Op
         _emit(database_url, key[: -len("-blog-r1")], "blog_drafting", "info", "started")
         return "blog_drafting"
     return None
+
+
+def brief_info(record: Optional[dict[str, Any]], blog: Any) -> Optional[dict[str, Any]]:
+    """For the shadow ``completion`` record: ``{delivered, sha, links_offered, links_used}`` when this submission had a research
+    step, else ``None`` (callers then pass nothing, so flags-off records are unchanged). Local string work only."""
+    rr = (record or {}).get("research")
+    if not isinstance(rr, dict):
+        return None
+    from plugins.platforms.event_post_pipeline.shadow import extract_links, norm_url
+
+    offered = []
+    for part in rr.get("rendered") or []:
+        for m in _SITE_URL_RE.finditer(str(part)):
+            u = norm_url(m.group(0))
+            if u and u not in offered:
+                offered.append(u)
+    text = blog.get("body") if isinstance(blog, dict) else blog
+    used = {norm_url(x["url"]) for x in extract_links(text if isinstance(text, str) else "")}
+    return {"delivered": rr.get("delivered") is True, "sha": rr.get("sha"), "links_offered": len(offered),
+            "links_used": len([u for u in offered if u in used])}
