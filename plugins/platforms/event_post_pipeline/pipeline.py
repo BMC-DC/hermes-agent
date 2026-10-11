@@ -23,6 +23,7 @@ from typing import Any, Optional
 
 from plugins.platforms.event_post_pipeline import db
 from plugins.platforms.event_post_pipeline.fence import defuse_fence_tags
+from plugins.platforms.event_post_pipeline.intake import INTAKE_VERSION, parse_intake, render_intake_lines
 from plugins.platforms.event_post_pipeline.review_client import (
     ReviewClientConfig, ReviewClientError, create_review, slug_from_review_url, update_review,
 )
@@ -93,7 +94,11 @@ def _wrap_untrusted(event_pack: dict[str, Any]) -> str:
 
     Every interpolated value goes through ``defuse_fence_tags`` so the text cannot
     close or nest the fence (a no-op for text without a fence tag, so ordinary
-    submissions render byte-for-byte as before)."""
+    submissions render byte-for-byte as before).
+
+    Intake v2 (W08): when the payload carries a usable ``intake`` object its labelled lines
+    (``intake.render_intake_lines``) are added after the seven legacy lines, inside the same fence.
+    A payload without one renders exactly as before."""
     lines = [
         "<untrusted_submission>",
         f"Date: {defuse_fence_tags(event_pack.get('date', ''))}",
@@ -102,6 +107,7 @@ def _wrap_untrusted(event_pack: dict[str, Any]) -> str:
         f"First photo: {defuse_fence_tags((event_pack.get('first') or {}).get('finalUrl', ''))}",
         f"Last photo: {defuse_fence_tags((event_pack.get('last') or {}).get('finalUrl', ''))}",
         f"Rest: {defuse_fence_tags([r.get('finalUrl') for r in (event_pack.get('rest') or [])])}",
+        *render_intake_lines(parse_intake(event_pack), defuse_fence_tags),
         "</untrusted_submission>",
     ]
     return "\n".join(lines)
@@ -276,11 +282,15 @@ def handle_intake(
         database_url, task_id, title=title, state="running", current_step="stylus_drafting",
         step="stylus_drafting", status="ok",
     )
+    intake = parse_intake(event_pack)
     store.upsert_submission(
         submission_id,
         {
             "root_task_id": task_id, "date": event_pack.get("date"), "description": description,
             "quote": event_pack.get("quote"), "images": _image_list(event_pack),
+            # Intake v2: the validated object, so refine rounds and the review row keep the new
+            # facts. Absent keys (not None values) for a v1 payload, so old records look unchanged.
+            **({"intake": intake, "intake_version": INTAKE_VERSION} if intake else {}),
             # Carried through to create_review() at first-round completion so
             # post_submissions.submitted_by can be resolved (see plan doc's
             # "Social Media Curator" ledger rationale) — same fields adapter.py's
@@ -406,6 +416,7 @@ def _handle_first_round_completion(
             review_config, task_id=task.id, event_title=event_title, date=record.get("date", ""),
             images=record.get("images", []), fb=metadata["fb"], ig=metadata["ig"], blog_body=blog["body"],
             blog_seo=_blog_seo_payload(blog),
+            description=record.get("description"), quote=record.get("quote"), intake=record.get("intake"),
             submitter_name=record.get("submitter_name"), submitter_phone=record.get("submitter_phone"),
         )
     except ReviewClientError as exc:
@@ -627,6 +638,7 @@ def _refine_task_body(*, record: dict[str, Any], platform: str, previous_draft: 
             f"Date: {defuse_fence_tags(record.get('date', ''))}",
             f"Description: {defuse_fence_tags(record.get('description', ''))}",
             f"Quote: {defuse_fence_tags(record.get('quote', ''))}",
+            "\n".join(render_intake_lines(record.get("intake") if isinstance(record.get("intake"), dict) else None, defuse_fence_tags)),
             "</untrusted_submission>",
             f"Previous {platform.upper()} draft:\n{defuse_fence_tags(previous_draft)}",
             f"Requested change (reviewer's own words):\n{defuse_fence_tags(comment)}",

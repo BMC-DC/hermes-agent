@@ -40,6 +40,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from plugins.platforms.event_post_pipeline.intake import parse_intake, to_service_pack
 from plugins.platforms.event_post_pipeline.site_client import SiteClient, SiteClientConfig, SiteResult
 
 logger = logging.getLogger("plugins.platforms.event_post_pipeline")
@@ -251,6 +252,9 @@ class ShadowRecorder:
             return
         pack = {"date": clean(event_pack.get("date"), 40), "description": str(event_pack.get("description") or "")[:MAX_PACK_FIELD_CHARS],
                 "quote": str(event_pack.get("quote") or "")[:MAX_PACK_FIELD_CHARS]}
+        if intake := parse_intake(event_pack):  # intake v2 (W08): the richer fields, mapped to the service's pack keys (INTAKE_FORM_SPEC §6b)
+            for key, value in to_service_pack(event_pack, intake).items():
+                pack.setdefault(key, [v[:MAX_PACK_FIELD_CHARS] for v in value] if isinstance(value, list) else str(value)[:MAX_PACK_FIELD_CHARS])
         if self.config.background_intake:
             t = threading.Thread(target=self._safe, args=("intake", self._intake, submission_id, task_id, pack), name="bmc-shadow-intake", daemon=True)
             self._threads.append(t)

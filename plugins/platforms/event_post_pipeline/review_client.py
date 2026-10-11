@@ -53,6 +53,9 @@ def create_review(
     blog_seo: dict[str, Any],
     submitter_name: Optional[str] = None,
     submitter_phone: Optional[str] = None,
+    description: Optional[str] = None,
+    quote: Optional[str] = None,
+    intake: Optional[dict[str, Any]] = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> str:
     """Creates the review page; returns its full URL.
@@ -61,6 +64,11 @@ def create_review(
     existing contract — the portal resolves ``post_submissions.submitted_by``
     from them when present, and leaves it NULL otherwise (older callers, or a
     submission the shared-login field didn't capture, are unaffected).
+
+    ``description``/``quote``/``intake`` (intake v2, INTAKE_FORM_SPEC §5) are likewise additive:
+    each is sent only when not ``None``, so the request for a v1 submission differs from before
+    only by the two text columns the portal never used to receive, and an older portal ignores
+    every one of them. ``intake`` is the plugin-validated object (``intake.parse_intake``).
     """
     payload: dict[str, Any] = {
         "taskId": task_id, "eventTitle": event_title, "date": date, "images": images,
@@ -69,6 +77,12 @@ def create_review(
     if submitter_name and submitter_phone:
         payload["submitterName"] = submitter_name
         payload["submitterPhone"] = submitter_phone
+    if description is not None:
+        payload["description"] = description
+    if quote is not None:
+        payload["quote"] = quote
+    if intake:
+        payload["intake"] = intake
     result = _post_json(f"{config.base_url}/api/event-review", payload, config.create_secret, timeout=timeout)
     url = result.get("url")
     if not isinstance(url, str) or not url:
