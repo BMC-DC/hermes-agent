@@ -10,7 +10,17 @@ in the same worker turn.
 
 from __future__ import annotations
 
+import pytest
+
+from plugins.platforms.event_post_pipeline import root_config
 from plugins.platforms.event_post_pipeline.pre_tool_call_guard import on_pre_tool_call
+
+
+@pytest.fixture(autouse=True)
+def _no_real_config(monkeypatch):
+    """The guard now resolves the completing task's identity (research task or not): keep these unit tests off the real config/board."""
+    monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
+    monkeypatch.setattr(root_config, "load_pipeline_extra", lambda: {})
 
 
 def _metadata(**overrides):

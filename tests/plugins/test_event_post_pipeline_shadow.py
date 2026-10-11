@@ -437,6 +437,13 @@ def test_non_blog_review_actions_are_not_recorded(tmp_path, site):
 
 
 # ------------------------------------------------------------------ the guard and the hooks/adapter wiring
+@pytest.fixture(autouse=True)
+def _guard_no_real_config(monkeypatch):
+    from plugins.platforms.event_post_pipeline import root_config
+    monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
+    monkeypatch.setattr(root_config, "load_pipeline_extra", lambda: {})
+
+
 def test_guard_is_unaffected_and_makes_no_calls(tmp_path, site, monkeypatch):
     _recorder(tmp_path, site.url)   # flags on somewhere; the guard must not care
     before = len(site.requests)

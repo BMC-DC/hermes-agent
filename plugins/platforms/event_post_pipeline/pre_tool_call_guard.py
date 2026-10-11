@@ -36,11 +36,17 @@ logger = logging.getLogger("plugins.platforms.event_post_pipeline")
 
 
 def on_pre_tool_call(*, tool_name: str = "", args: Any = None, **_kwargs: Any) -> Optional[dict[str, str]]:
-    if tool_name != "kanban_complete" or not isinstance(args, dict):
+    if tool_name not in ("kanban_complete", "kanban_comment") or not isinstance(args, dict):
+        return None
+    # Research tasks (WebMaster) are decided by TASK IDENTITY (tenant + ``-research`` key), never by the shape of the metadata:
+    # a research completion without a research_brief key, with extra keys, or with a free-text summary must not slip through,
+    # because B is linked under R and the kanban layer hands R's summary and metadata to B unfenced.
+    is_research, verdict = _research_check(tool_name, args)
+    if is_research:
+        return verdict
+    if tool_name != "kanban_complete":
         return None
     metadata = args.get("metadata")
-    if isinstance(metadata, dict) and "research_brief" in metadata and "blog" not in metadata:
-        return _research_guard(args)
     if not isinstance(metadata, dict) or "blog" not in metadata:
         return None  # not a first-round/blog-refine Stylus completion — nothing to check
     err = blog_shape_error(metadata.get("blog"))
@@ -56,32 +62,55 @@ def on_pre_tool_call(*, tool_name: str = "", args: Any = None, **_kwargs: Any) -
     }
 
 
-def _research_guard(args: dict[str, Any]) -> Optional[dict[str, str]]:
-    """Research branch (WebMaster's ``kanban_complete`` carrying ``metadata["research_brief"]``): validates the brief and, when
-    it passes, writes the rendered comment(s) on the blog task. No tool restriction (owner decision). Fail-open: any trouble
-    here lets the completion through (the ``kanban_task_completed`` hook validates again and drops what is not allowed)."""
+def _research_check(tool_name: str, args: dict[str, Any]) -> tuple[bool, Optional[dict[str, str]]]:
+    """``(is_research_task, verdict)``. For a research task the verdict is authoritative and FAILS CLOSED: any exception while
+    checking blocks with a retry message (the pipeline-level fail-open is the sweeper: a stuck R is unlinked and archived, so B is
+    never fed raw output). If the task's identity cannot be established at all (no config, board unreachable) the guard stays
+    out of the way, exactly as before: ``(False, None)``.
+
+    * ``kanban_complete`` by a research task: metadata must be exactly ``{schema, research_brief}``, the brief must pass
+      ``brief.validate_brief`` and the ``summary`` ``brief.validate_summary`` (research.guard_research_completion).
+    * ``kanban_comment`` by a research worker onto ANOTHER task is blocked: the kanban layer allows cross-task comments and a
+      comment on B is injected into B's worker context unfenced."""
     try:
         from plugins.platforms.event_post_pipeline import pipeline, research
         from plugins.platforms.event_post_pipeline.root_config import load_pipeline_extra
         from plugins.platforms.event_post_pipeline.store import EventPostPipelineStore, resolve_store_path
 
-        task_id = args.get("task_id") or os.environ.get("HERMES_KANBAN_TASK")
+        env_task = os.environ.get("HERMES_KANBAN_TASK")
+        task_id = (args.get("task_id") or env_task) if tool_name == "kanban_complete" else env_task
         if not task_id:
-            return None
+            return False, None
         extra = load_pipeline_extra()
         if not extra:
-            return None
+            return False, None
         from hermes_cli import kanban_db as kb
         from hermes_cli import kanban_db_connect as kbc
 
         conn = kbc.connect(board=extra.get("board"))
+        ops = pipeline.KanbanOps(kb)
         try:
-            return research.guard_research_completion(
-                conn, pipeline.KanbanOps(kb), EventPostPipelineStore(resolve_store_path(extra.get("store_path"))), str(task_id), args,
-                tenant=pipeline.TENANT, author=pipeline.CREATED_BY, extra=extra,
-            )
+            if not research.is_research_task(ops.get_task(conn, str(task_id)), pipeline.TENANT):
+                return False, None
+            try:
+                if tool_name == "kanban_comment":
+                    target = args.get("task_id")
+                    if target and str(target) != str(env_task):
+                        return True, {"action": "block", "message": (
+                            "kanban_comment blocked: a research task may only comment on its own task. Put your answer in "
+                            "kanban_complete (metadata research_brief); comments on other tasks are not allowed.")}
+                    return True, None
+                return True, research.guard_research_completion(
+                    conn, ops, EventPostPipelineStore(resolve_store_path(extra.get("store_path"))), str(task_id), args,
+                    tenant=pipeline.TENANT, author=pipeline.CREATED_BY, extra=extra,
+                )
+            except Exception:  # noqa: BLE001 - research task: fail CLOSED
+                logger.exception("[event_post_pipeline] research guard failed for task=%s; blocking (fail closed)", task_id)
+                return True, {"action": "block", "message": (
+                    f"{tool_name} blocked: the research check could not run just now. Retry the same call in a moment; if it keeps "
+                    "failing, complete with status nothing_useful or stop: the writer starts without a brief after a few minutes.")}
         finally:
             conn.close()
-    except Exception:  # noqa: BLE001
-        logger.exception("[event_post_pipeline] research guard failed; letting the completion through")
-        return None
+    except Exception:  # noqa: BLE001 - identity unknown: leave everything as it was
+        logger.exception("[event_post_pipeline] research guard could not identify the task; letting the call through")
+        return False, None
