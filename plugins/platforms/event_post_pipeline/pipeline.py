@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from plugins.platforms.event_post_pipeline import db
+from plugins.platforms.event_post_pipeline import research as _research
 from plugins.platforms.event_post_pipeline.fence import defuse_fence_tags
 from plugins.platforms.event_post_pipeline.intake import INTAKE_VERSION, parse_intake, render_intake_lines
 from plugins.platforms.event_post_pipeline.review_client import (
@@ -41,6 +42,7 @@ _REVIEW_URL_COMMENT_RE = re.compile(r"Review page:\s*(\S+)")
 # Split intake (``blog_enrichment.split``): first line of each task body tells Stylus (and this plugin) the task kind.
 SOCIAL_MARKER = "[task-kind: social]"
 BLOG_MARKER = "[task-kind: blog]"
+BLOG_RESEARCH_LINE = _research.BLOG_RESEARCH_LINE
 DEFAULT_BLOG_WAIT_SECONDS = 1200
 _SOCIAL_ALLOWED_KEYS = frozenset({"event_title", "fb", "ig"})
 _BLOG_ALLOWED_KEYS = frozenset({"event_title", "blog"})
@@ -101,6 +103,18 @@ class KanbanOps:
 
     def list_tasks(self, conn, **kwargs):
         return self.kb.list_tasks(conn, **kwargs)
+
+    def unlink_tasks(self, conn, parent_id: str, child_id: str) -> bool:
+        return self.kb.unlink_tasks(conn, parent_id, child_id)
+
+    def archive_task(self, conn, task_id: str) -> bool:
+        return self.kb.archive_task(conn, task_id)
+
+    def child_ids(self, conn, task_id: str) -> list[str]:
+        return self.kb.child_ids(conn, task_id)
+
+    def parent_ids(self, conn, task_id: str) -> list[str]:
+        return self.kb.parent_ids(conn, task_id)
 
 
 def _short_title(description: str) -> str:
@@ -282,7 +296,7 @@ def _image_list(event_pack: dict[str, Any]) -> list[str]:
 def handle_intake(
     conn, ops: KanbanOps, store: EventPostPipelineStore, *, submission_id: str, event_pack: dict[str, Any],
     database_url: Optional[str] = None, shadow: Any = None, split: bool = False,
-    blog_parents: Optional[list[str]] = None,
+    blog_parents: Optional[list[str]] = None, research: Any = None,
 ) -> str:
     """Step 2: create the Stylus handoff. No LLM call. Returns the new task id.
 
@@ -290,20 +304,40 @@ def handle_intake(
 
     ``split`` (``blog_enrichment.split``, default off = exactly the single task below): create S (social: FB+IG only,
     this root id and key) and B (blog only, key ``<root>-blog-r1``). ``blog_parents`` is the hook for the research
-    task R (``parents=[R]``, a later work package); with none, B has no parent and does not wait for S."""
+    task R (``parents=[R]``, a later work package); with none, B has no parent and does not wait for S.
+
+    ``research`` (``research.ResearchPlanner`` or ``None`` = flag off = nothing below changes): the research task R is
+    created FIRST (never raises, fail-open: service down / nothing useful -> no R, ``research_skipped``). B gets
+    ``parents=[R]`` only when ``research.handoff`` and ``split`` are both on; otherwise R runs unlinked (shadow)."""
     description = str(event_pack.get("description") or "")
     title = _short_title(description) if description else submission_id
     body = _wrap_untrusted(event_pack)
-    task_id = ops.create_task(
-        conn, title=f"Draft social copy: {defuse_fence_tags(title)}",
-        body=f"{SOCIAL_MARKER}\n{body}" if split else body,
-        assignee="stylus", idempotency_key=submission_id, tenant=TENANT, created_by=CREATED_BY,
-    )
+    plan = research_task_id = None
+    handoff = False
+    if research is not None and not _task_with_key(conn, ops, submission_id):  # a retried intake never plans again
+        research_task_id, plan = _create_research_task(conn, ops, research, submission_id, event_pack, body, title)
+        handoff = research.config.effective_handoff(split) and bool(research_task_id)
+        if handoff:
+            blog_parents = [*(blog_parents or []), research_task_id]
+    try:
+        task_id = ops.create_task(
+            conn, title=f"Draft social copy: {defuse_fence_tags(title)}",
+            body=f"{SOCIAL_MARKER}\n{body}" if split else body,
+            assignee="stylus", idempotency_key=submission_id, tenant=TENANT, created_by=CREATED_BY,
+        )
+    except BaseException:
+        if research_task_id:  # do not leave an orphan research task behind
+            try:
+                ops.archive_task(conn, research_task_id)
+            except Exception:  # noqa: BLE001
+                logger.exception("event_post_pipeline: could not archive orphan research task %s", research_task_id)
+        raise
     blog_task_id: Optional[str] = None
     if split:
         blog_kwargs: dict[str, Any] = {"parents": list(blog_parents)} if blog_parents else {}
+        blog_body = f"{BLOG_MARKER}\n{body}" + (f"\n\n{BLOG_RESEARCH_LINE}" if handoff else "")
         blog_task_id = ops.create_task(
-            conn, title=f"Draft blog: {defuse_fence_tags(title)}", body=f"{BLOG_MARKER}\n{body}",
+            conn, title=f"Draft blog: {defuse_fence_tags(title)}", body=blog_body,
             assignee="stylus", idempotency_key=f"{task_id}-blog-r1", tenant=TENANT, created_by=CREATED_BY, **blog_kwargs,
         )
     # Visualizer: "intake received" and "Stylus task created" both happen at this exact
@@ -337,9 +371,66 @@ def handle_intake(
     )
     if split:
         store.join_init(submission_id, blog_task_id)
+    if plan is not None:
+        _record_research_start(
+            store, database_url, submission_id, task_id, research_task_id, plan, handoff, blog_task_id, research.config,
+        )
     _shadow_call(shadow, "record_intake", submission_id=submission_id, task_id=task_id, event_pack=event_pack)
     logger.info("event_post_pipeline: intake submission=%s -> task=%s", submission_id, task_id)
     return task_id
+
+
+def _task_with_key(conn, ops: KanbanOps, idempotency_key: str):
+    """The existing non-archived task of this tenant with ``idempotency_key``, else ``None``."""
+    for t in ops.list_tasks(conn, tenant=TENANT):
+        if t.idempotency_key == idempotency_key:
+            return t
+    return None
+
+
+def _create_research_task(conn, ops: KanbanOps, research, submission_id: str, event_pack: dict[str, Any], pack_block: str, title: str):
+    """Plans and creates R. Returns ``(task_id | None, plan)``; never raises (research must never break an intake)."""
+    try:
+        plan = research.start(submission_id=submission_id, event_pack=event_pack, pack_block=pack_block, title=defuse_fence_tags(title))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("event_post_pipeline: research planning failed (%s); continuing without research", type(exc).__name__)
+        return None, _research.ResearchPlan(ok=False, reason="planning failed")
+    if not plan.ok:
+        return None, plan
+    cfg = research.config
+    try:
+        task_id = ops.create_task(
+            conn, title=plan.title, body=plan.body, assignee=cfg.assignee, idempotency_key=f"{submission_id}{_research.RESEARCH_SUFFIX}",
+            tenant=TENANT, created_by=CREATED_BY, skills=[cfg.skill], max_runtime_seconds=cfg.max_runtime_s, max_retries=1,
+            reasoning_effort=cfg.reasoning_effort,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("event_post_pipeline: research task creation failed (%s); continuing without research", type(exc).__name__)
+        plan.ok, plan.reason = False, "research task could not be created"
+        return None, plan
+    return task_id, plan
+
+
+def _record_research_start(
+    store, database_url, submission_id: str, root_task_id: str, research_task_id: Optional[str], plan, handoff: bool,
+    blog_task_id: Optional[str], cfg,
+) -> None:
+    """Store + visualizer events for the research outcome at intake. Best effort."""
+    try:
+        if research_task_id:
+            store.upsert_submission(submission_id, {"research": {
+                "task_id": research_task_id, "handoff": handoff, "blog_task_id": blog_task_id,
+                "allowed_urls": list(plan.allowed_urls), "corpus_hash": plan.corpus_hash,
+                "deadline_s": cfg.deadline_s, "state": "queued",
+            }})
+            _track_event_only(
+                database_url, root_task_id, "research_queued", "info",
+                detail=f"WebMaster task {research_task_id}, deadline {max(1, cfg.deadline_s // 60)} min, {plan.n_candidates} candidate pages",
+            )
+        else:
+            _track_event_only(database_url, root_task_id, "research_skipped", "info", detail=plan.reason)
+    except Exception:  # noqa: BLE001
+        logger.exception("event_post_pipeline: research bookkeeping failed for submission=%s", submission_id)
 
 
 def _record_for_task(conn, ops: KanbanOps, store: EventPostPipelineStore, task) -> Optional[dict[str, Any]]:
