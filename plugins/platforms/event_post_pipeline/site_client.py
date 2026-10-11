@@ -232,6 +232,19 @@ class SiteClient:
             return _unavailable("malformed reply")
         return SiteResult(available=True, text=parsed["text"], data=data, corpus_hash=str(parsed.get("corpus_hash", "")), meta={"request_id": parsed.get("request_id", ""), "service_version": parsed.get("service_version", "")})
 
+    def search(self, query: str, *, page_size: int = 3, timeout: Optional[float] = None) -> SiteResult:
+        """Topic lookup (``POST /v1/search``): ``data = {query, confident, results: [{url, title, strength, why, passages: [...]}]}``.
+        Used by the research step for per-hook lookups. A service that predates the route answers 404 -> unavailable (fail open)."""
+        body = {"schema": SCHEMA, "query": query, "page_size": page_size}
+        parsed, reason = self._call("POST", "/v1/search", body, timeout=timeout)
+        if parsed is None:
+            return _unavailable(reason)
+        data = parsed.get("data")
+        if not isinstance(data, dict) or not isinstance(data.get("results"), list) or not isinstance(parsed.get("text"), str):
+            return _unavailable("malformed reply")
+        return SiteResult(available=True, text=parsed["text"], data=data, corpus_hash=str(parsed.get("corpus_hash", "")),
+                          meta={"request_id": parsed.get("request_id", ""), "service_version": parsed.get("service_version", "")})
+
     def verify_links(self, draft: Any, *, candidates: Optional[list[str]] = None) -> SiteResult:
         """``draft``: markdown string or the Stylus metadata dict. ``candidates``: page ids/URLs from the pre-draft context pack
         (an empty list means "no link allowed"; ``None`` skips the closed-list check)."""

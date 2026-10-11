@@ -435,7 +435,8 @@ def _record_research_start(
             }})
             _track_event_only(
                 database_url, root_task_id, "research_queued", "info",
-                detail=f"WebMaster task {research_task_id}, deadline {max(1, cfg.deadline_s // 60)} min, {plan.n_candidates} candidate pages",
+                detail=f"WebMaster task {research_task_id}, deadline {max(1, cfg.deadline_s // 60)} min, {plan.n_candidates} candidate pages"
+                + (f", {plan.hooks_tried} hook lookups -> {plan.hook_pages} pages" if getattr(plan, "hooks_tried", 0) else ""),
             )
         else:
             _track_event_only(database_url, root_task_id, "research_skipped", "info", detail=plan.reason)

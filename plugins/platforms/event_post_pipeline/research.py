@@ -40,6 +40,13 @@ MAX_PASSAGES = 4
 PASSAGE_CHARS = 400
 PROGRAM_CHARS = 700
 MAX_PACK_FIELD_CHARS = 8000
+DEFAULT_HOOK_LOOKUPS = 3         # extra topic lookups per submission (config ``research.hook_lookups``; 0 turns them off)
+MAX_HOOK_LOOKUPS = 6
+DEFAULT_HOOK_MIN_STRENGTH = 0.45  # service match strength (0..1, share of the query's weighted words found) below which a hit is noise
+HOOK_BUDGET_S = 2.0
+HOOK_PAGES_EACH = 2              # pages kept per hook
+HOOK_QUERY_CHARS = 160
+HOOK_MIN_CHARS = 8
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f  ]")
 _URL_OK = re.compile(r"^https?://[^\s<>\"']{4,196}$", re.I)
 
@@ -65,6 +72,12 @@ def _num(value: Any, default: float, lo: float, hi: float) -> float:
     return float(value)
 
 
+def _hook_count(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= MAX_HOOK_LOOKUPS:
+        return DEFAULT_HOOK_LOOKUPS
+    return value
+
+
 @dataclass(frozen=True)
 class ResearchConfig:
     enabled: bool = False
@@ -78,6 +91,9 @@ class ResearchConfig:
     fact_patterns: tuple[str, ...] = ()
     budget_s: float = SERVICE_BUDGET_S
     service_url: str = ""
+    hook_lookups: int = DEFAULT_HOOK_LOOKUPS     # extra per-hook topic lookups (0 = off, byte-identical to before)
+    hook_min_strength: float = DEFAULT_HOOK_MIN_STRENGTH
+    hook_budget_s: float = HOOK_BUDGET_S         # total extra wall time for all hook lookups
 
     @classmethod
     def from_extra(cls, extra: Optional[dict[str, Any]]) -> "ResearchConfig":
@@ -99,6 +115,9 @@ class ResearchConfig:
             max_candidates=int(_num(rc.get("max_candidates"), 8, 1, 20)),
             fact_patterns=tuple(p for p in pats if isinstance(p, str) and p.strip()) if isinstance(pats, (list, tuple)) else (),
             budget_s=SERVICE_BUDGET_S, service_url=url if isinstance(url, str) else "",
+            hook_lookups=_hook_count(rc.get("hook_lookups")),
+            hook_min_strength=_num(rc.get("hook_min_strength"), DEFAULT_HOOK_MIN_STRENGTH, 0.0, 1.0),
+            hook_budget_s=_num(rc.get("hook_budget_s"), HOOK_BUDGET_S, 0.2, 6.0),
         )
 
     def effective_handoff(self, split: bool) -> bool:
@@ -139,6 +158,73 @@ class ResearchPlan:
     n_candidates: int = 0
     service_ok: bool = False
     latency_ms: int = 0
+    hooks_tried: int = 0              # extra lookups issued (answered or not)
+    hook_pages: int = 0               # pages those lookups added to the candidate list
+
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+_ASKED = re.compile(r"\b(asked|asking|wondered|wondering|question)\b", re.I)
+_URL_IN_TEXT = re.compile(r"https?://\S+")
+
+
+def extract_hooks(service_pack: dict[str, Any], limit: int) -> list[str]:
+    """Short phrases (no LLM, no network) naming things the pack raises that the program lookup does not cover: sentences that are
+    questions or say 'asked', then the quote. Order is by usefulness (questions, 'asked' sentences, quote); duplicates and
+    near-empty phrases are dropped; at most ``limit`` come back. Pure and deterministic."""
+    if limit <= 0 or not isinstance(service_pack, dict):
+        return []
+    texts: list[str] = []
+    for key in ("description", "story", "moment"):
+        if isinstance(service_pack.get(key), str):
+            texts.append(service_pack[key])
+    for key in ("what_happened",):
+        if isinstance(service_pack.get(key), list):
+            texts.extend(x for x in service_pack[key] if isinstance(x, str))
+    questions: list[str] = []
+    asked: list[str] = []
+    for text in texts:
+        for sent in _SENTENCE_SPLIT.split(_URL_IN_TEXT.sub(" ", text)):
+            sent = " ".join(_CONTROL.sub(" ", sent).split())
+            if len(sent) < HOOK_MIN_CHARS:
+                continue
+            if "?" in sent:
+                questions.append(sent)
+            elif _ASKED.search(sent):
+                asked.append(sent)
+    quote = service_pack.get("quote")
+    quotes = [" ".join(_CONTROL.sub(" ", _URL_IN_TEXT.sub(" ", quote)).split())] if isinstance(quote, str) else []
+    out: list[str] = []
+    seen: set[str] = set()
+    for phrase in [*questions, *quotes, *asked]:
+        phrase = phrase[:HOOK_QUERY_CHARS].strip()
+        key = phrase.lower()
+        if len(phrase) >= HOOK_MIN_CHARS and key not in seen:
+            seen.add(key)
+            out.append(phrase)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def hook_hits(result: Any, min_strength: float) -> list[dict[str, Any]]:
+    """The usable pages of one ``SiteClient.search`` result: service-confident, strength at least ``min_strength``, a plausible URL,
+    at most ``HOOK_PAGES_EACH``. Everything else (weak matches, odd shapes) is dropped; never raises."""
+    try:
+        if not getattr(result, "available", False) or not isinstance(result.data, dict) or result.data.get("confident") is not True:
+            return []
+        out: list[dict[str, Any]] = []
+        for r in result.data.get("results") or []:
+            if not isinstance(r, dict) or not isinstance(r.get("url"), str) or not _URL_OK.match(r["url"].strip()):
+                continue
+            strength = r.get("strength")
+            if isinstance(strength, bool) or not isinstance(strength, (int, float)) or strength < min_strength:
+                continue
+            out.append(r)
+            if len(out) >= HOOK_PAGES_EACH:
+                break
+        return out
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def _candidate_line(c: dict[str, Any]) -> Optional[tuple[str, str]]:
@@ -152,7 +238,9 @@ def _candidate_line(c: dict[str, Any]) -> Optional[tuple[str, str]]:
     return url, "- " + " | ".join(p for p in parts if p)
 
 
-def build_research_body(pack_block: str, data: dict[str, Any], max_candidates: int) -> tuple[str, list[str], int, str]:
+def build_research_body(
+    pack_block: str, data: dict[str, Any], max_candidates: int, hook_results: Optional[list[tuple[str, list[dict[str, Any]]]]] = None,
+) -> tuple[str, list[str], int, str]:
     """``(body, allowed_urls, n_candidates, reason)``; ``reason`` is non-empty (and body empty) when there is nothing to send.
     ``pack_block`` is the already fenced submission (``pipeline._wrap_untrusted``): it never carries submitter name or phone."""
     head = f"{RESEARCH_MARKER}\n{pack_block}\n<site_candidates>"
@@ -197,15 +285,35 @@ def build_research_body(pack_block: str, data: dict[str, Any], max_candidates: i
         if isinstance(p, dict) and isinstance(p.get("url"), str) and _URL_OK.match(p["url"].strip()) and p.get("text"):
             if add(f"Passage [{p['url'].strip()}] {_line(p.get('heading'), 80)}: {_line(p.get('text'), PASSAGE_CHARS)}", p["url"].strip()):
                 npass += 1
+    n_hook_pages = 0
+    for hook, hits in (hook_results or []):
+        rows: list[str] = []
+        for r in hits:
+            url = r["url"].strip()
+            if url in allowed:
+                continue                       # already offered above (or by an earlier hook)
+            title = _line(r.get("title"), 100)
+            row = f"- {url} | {title}" if title else f"- {url}"
+            ps = [p for p in (r.get("passages") or []) if isinstance(p, dict) and p.get("text")]
+            if ps:
+                row += f"\n  Passage [{url}] {_line(ps[0].get('heading'), 80)}: {_line(ps[0].get('text'), PASSAGE_CHARS)}"
+            rows.append((url, row))
+        if not rows:
+            continue
+        if not add(f'Pages found for this point raised in the submission ("{_line(hook, 100)}"):'):
+            break
+        for url, row in rows:
+            if add(row, url):
+                n_hook_pages += 1
     mi = data.get("missing_info")
     if isinstance(mi, dict) and isinstance(mi.get("items"), list):
         miss = [f"{_line(i.get('field'), 40)}: {_line(i.get('why'), 100)}" for i in mi["items"][:8] if isinstance(i, dict)]
         if miss:
             add("The submission lacks: " + "; ".join(miss))
-    if n == 0 and not has_program and npass == 0:
+    if n == 0 and not has_program and npass == 0 and n_hook_pages == 0:
         return "", [], 0, "nothing useful"
     body = "\n".join([head, *lines, tail])
-    return body, allowed, n, ""
+    return body, allowed, n + n_hook_pages, ""
 
 
 class ResearchPlanner:
@@ -227,9 +335,11 @@ class ResearchPlanner:
     def start(self, *, submission_id: str, event_pack: dict[str, Any], pack_block: str, title: str) -> ResearchPlan:
         t0 = time.monotonic()
         budget = self.config.budget_s
-        holder: dict[str, Any] = {}
+        holder: dict[str, Any] = {"hooks": [], "tried": 0}
+        main_done = threading.Event()
 
         def work() -> None:
+            service_pack: dict[str, Any] = {}
             try:
                 client = self._client(budget)
                 health = client.health()
@@ -242,33 +352,69 @@ class ResearchPlanner:
                     return
                 # the context-pack call gets only what is left of the budget
                 client = self._client(remaining) if self._client_factory is None else client
-                pack = self._service_pack(event_pack)
-                res = client.context_pack(pack)
+                service_pack = self._service_pack(event_pack)
+                res = client.context_pack(service_pack)
                 holder["res"] = ("ok", "", res) if res.available else ("down", res.reason or "context-pack failed", None)
             except Exception as exc:  # noqa: BLE001
                 holder["res"] = ("down", type(exc).__name__, None)
+                return
+            finally:
+                main_done.set()
+            if holder["res"][0] == "ok":
+                self._lookup_hooks(holder, service_pack)
 
         thread = threading.Thread(target=work, name="bmc-research-plan", daemon=True)
         thread.start()
-        thread.join(budget)
-        latency = int((time.monotonic() - t0) * 1000)
+        main_done.wait(budget)
         res = holder.get("res")
+        if res is not None and res[0] == "ok" and self.config.hook_lookups > 0:
+            thread.join(self.config.hook_budget_s)   # extra, bounded wait for the per-hook lookups; whatever finished is used
+        latency = int((time.monotonic() - t0) * 1000)
         if res is None:
             return ResearchPlan(ok=False, reason="service down: timeout", latency_ms=latency)
         kind, why, result = res
         if kind != "ok":
             return ResearchPlan(ok=False, reason=f"service down: {_line(why, 60)}", latency_ms=latency)
+        hook_results = list(holder["hooks"])
         try:
-            body, allowed, n, reason = build_research_body(pack_block, result.data or {}, self.config.max_candidates)
+            body, allowed, n, reason = build_research_body(pack_block, result.data or {}, self.config.max_candidates, hook_results)
         except Exception as exc:  # noqa: BLE001
             logger.warning("event_post_pipeline: research body build failed (%s)", type(exc).__name__)
             return ResearchPlan(ok=False, reason="body build failed", service_ok=True, latency_ms=latency)
+        tried = int(holder["tried"])
         if reason:
-            return ResearchPlan(ok=False, reason=reason, service_ok=True, corpus_hash=result.corpus_hash, latency_ms=latency)
+            return ResearchPlan(ok=False, reason=reason, service_ok=True, corpus_hash=result.corpus_hash, latency_ms=latency, hooks_tried=tried)
+        hook_urls = {r["url"].strip() for _h, hits in hook_results for r in hits}
         return ResearchPlan(
             ok=True, title=f"Research: {title}", body=body, allowed_urls=allowed, corpus_hash=str(result.corpus_hash or ""),
-            n_candidates=n, service_ok=True, latency_ms=latency,
+            n_candidates=n, service_ok=True, latency_ms=latency, hooks_tried=tried, hook_pages=len(hook_urls & set(allowed)),
         )
+
+    def _lookup_hooks(self, holder: dict[str, Any], service_pack: dict[str, Any]) -> None:
+        """Runs on the worker thread after the context-pack call. At most ``hook_lookups`` searches, each fail-open (any problem
+        means that hook adds nothing), all inside ``hook_budget_s``. Results are appended as they arrive so the caller can use
+        whatever finished before it stopped waiting."""
+        try:
+            hooks = extract_hooks(service_pack, self.config.hook_lookups)
+            deadline = time.monotonic() + self.config.hook_budget_s
+            for hook in hooks:
+                left = deadline - time.monotonic()
+                if left <= 0.1:
+                    break
+                holder["tried"] += 1
+                try:
+                    if self._client_factory is None:
+                        result = self._client(left).search(hook, page_size=HOOK_PAGES_EACH + 1, timeout=left)
+                    else:
+                        result = self._client_factory(left).search(hook)
+                    hits = hook_hits(result, self.config.hook_min_strength)
+                except Exception as exc:  # noqa: BLE001
+                    logger.info("event_post_pipeline: research hook lookup failed (%s); skipped", type(exc).__name__)
+                    continue
+                if hits:
+                    holder["hooks"].append((hook, hits))
+        except Exception as exc:  # noqa: BLE001
+            logger.info("event_post_pipeline: research hook lookups aborted (%s)", type(exc).__name__)
 
     @staticmethod
     def _service_pack(event_pack: dict[str, Any]) -> dict[str, Any]:
