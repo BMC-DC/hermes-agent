@@ -440,3 +440,96 @@ def guard_research_completion(
     if handoff and blog_id and rendered.parts:
         deliver_brief(conn, ops, blog_id, rendered, author)
     return None
+
+
+# --------------------------------------------------------------------------------------------- fail-open sweeper
+# Kanban never releases a child whose parent is blocked or still open, so "research must never hold the blog hostage" is
+# ours to enforce. On every dispatcher tick (``hooks.on_kanban_dispatch_tick``) any research task of this tenant that is
+# blocked, overdue (``deadline_s`` from creation) or never spawned is unlinked from its blog task (B is re-gated and becomes
+# ready at once), commented and archived. NOT gated by the ``enabled`` flag (a flag flipped off must not strand an open R).
+# Touches only tasks of ``tenant`` whose key ends with ``-research``. Idempotent: archived tasks are not listed again.
+
+def _emit(database_url: Optional[str], root_task_id: Optional[str], step: str, status: str, detail: str) -> None:
+    if not root_task_id:
+        return
+    try:
+        from plugins.platforms.event_post_pipeline import pipeline
+        pipeline._track_event_only(database_url, root_task_id, step, status, detail=detail)
+    except Exception:  # noqa: BLE001
+        logger.exception("event_post_pipeline: research event %s failed", step)
+
+
+def _root_for(store, sid: str, blog_ids: list[str], ops, conn) -> Optional[str]:
+    root = (store.get_submission(sid) or {}).get("root_task_id")
+    if root:
+        return root
+    for b in blog_ids:
+        t = ops.get_task(conn, b)
+        key = getattr(t, "idempotency_key", None) or ""
+        if key.endswith("-blog-r1"):
+            return key[: -len("-blog-r1")]
+    return None
+
+
+def sweep(
+    conn, ops, store, *, now: float, tenant: str, author: str, default_deadline_s: float = 360.0,
+    database_url: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """Returns one dict per research task it retired. Never raises (one bad task must not stop the others)."""
+    retired: list[dict[str, Any]] = []
+    try:
+        tasks = list(ops.list_tasks(conn, tenant=tenant))
+    except Exception:  # noqa: BLE001
+        logger.exception("event_post_pipeline: research sweep could not list tasks")
+        return retired
+    for t in tasks:
+        if not is_research_key(getattr(t, "idempotency_key", None)) or t.status in ("done", "archived"):
+            continue
+        try:
+            sid = submission_id_for_key(t.idempotency_key)
+            rec = _research_record(store, sid)
+            deadline = rec.get("deadline_s")
+            deadline = float(deadline) if isinstance(deadline, (int, float)) and not isinstance(deadline, bool) and deadline > 0 else float(default_deadline_s)
+            age = now - float(t.created_at or now)
+            if t.status == "blocked":
+                step, why = "research_failed", "blocked"
+            elif age > deadline:
+                step, why = ("research_timeout", "timeout") if t.status == "running" else ("research_failed", "never started")
+            else:
+                continue
+            blog_ids = list(ops.child_ids(conn, t.id))
+            for b in blog_ids:
+                ops.unlink_tasks(conn, t.id, b)          # re-gates B immediately (B starts without a brief)
+            ops.add_comment(conn, t.id, author, f"event-post-pipeline: research {why} after {int(age)} s; continuing without a brief.")
+            ops.archive_task(conn, t.id)
+            try:
+                store.upsert_submission(sid, {"research": {**rec, "task_id": t.id, "state": "skipped", "outcome": why, "delivered": False,
+                                                           "completed_at": now}})
+            except Exception:  # noqa: BLE001
+                logger.exception("event_post_pipeline: could not store research sweep outcome for %s", sid)
+            _emit(database_url, _root_for(store, sid, blog_ids, ops, conn), step, "error",
+                  f"no brief ({why}); blog continues without it")
+            retired.append({"action": "research_retired", "task_id": t.id, "submission_id": sid, "reason": why, "event": step,
+                            "unlinked": blog_ids})
+        except Exception:  # noqa: BLE001
+            logger.exception("event_post_pipeline: research sweep failed for task %s", getattr(t, "id", "?"))
+    return retired
+
+
+# --------------------------------------------------------------------------------------------- claim observer
+def track_claim(conn, ops, store, task_id: str, *, tenant: str, database_url: Optional[str] = None) -> Optional[str]:
+    """``kanban_task_claimed`` (dispatcher process, right before the worker spawns): visualizer event ``research_running`` for
+    a research task, ``blog_drafting`` for a split blog task. Only this tenant's tasks. Returns the step emitted, else ``None``."""
+    task = ops.get_task(conn, task_id)
+    if task is None or getattr(task, "tenant", None) != tenant:
+        return None
+    key = getattr(task, "idempotency_key", None) or ""
+    if is_research_key(key):
+        sid = submission_id_for_key(key)
+        root = _root_for(store, sid, [], ops, conn)
+        _emit(database_url, root, "research_running", "info", "started")
+        return "research_running"
+    if key.endswith("-blog-r1") and (getattr(task, "body", None) or "").lstrip().startswith("[task-kind: blog]"):
+        _emit(database_url, key[: -len("-blog-r1")], "blog_drafting", "info", "started")
+        return "blog_drafting"
+    return None

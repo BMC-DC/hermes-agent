@@ -193,7 +193,7 @@ def _run_async(coro_factory) -> None:
 
 
 def run_join_sweep(now: Optional[float] = None) -> list[dict]:
-    """Split-intake join sweep for a dispatcher-tick hook (registered by a later work package): loads config fresh,
+    """Split-intake join sweep for the dispatcher-tick hook (``on_kanban_dispatch_tick``, which also runs the research sweep): loads config fresh,
     runs ``pipeline.sweep_join`` and sends the ONE WhatsApp message for every page it creates. Never raises."""
     import time
     try:
@@ -224,6 +224,80 @@ def run_join_sweep(now: Optional[float] = None) -> list[dict]:
     for result in results:
         _send_result_notification(result, db_url, result["task_id"])
     return results
+
+
+def run_research_sweep(now: Optional[float] = None) -> list[dict]:
+    """Research fail-open sweep for the dispatcher-tick hook: retires blocked/overdue/never-spawned research tasks so the blog
+    task starts without a brief. Not gated by the research flag. Loads config fresh; never raises."""
+    import time
+    try:
+        extra = _load_pipeline_extra()
+        if not extra:
+            return []
+        db_url = db.resolve_database_url(extra)
+        store = EventPostPipelineStore(resolve_store_path(extra.get("store_path")))
+        from hermes_cli import kanban_db as kb
+        from hermes_cli import kanban_db_connect as kbc
+
+        conn = kbc.connect(board=extra.get("board"))
+        try:
+            return research.sweep(
+                conn, pipeline.KanbanOps(kb), store, now=time.time() if now is None else now, tenant=pipeline.TENANT,
+                author=pipeline.CREATED_BY, default_deadline_s=research.ResearchConfig.from_extra(extra).deadline_s, database_url=db_url,
+            )
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        logger.exception("[event_post_pipeline] research sweep failed")
+        return []
+
+
+def on_kanban_dispatch_tick(*, board: Optional[str] = None, profile_name: Optional[str] = None, dry_run: bool = False,
+                            outcome: Optional[str] = None, result: Any = None, **_kwargs: Any) -> None:
+    """Registered for ``on_kanban_dispatch_tick`` (``hermes_cli/kanban_db.py::_fire_dispatch_tick_hook``): once per dispatcher
+    tick, after the dispatch lock is released, in the dispatcher process (the gateway). Runs the research fail-open sweep and the
+    split-intake join sweep. Observer only: each sweep is isolated and neither can raise."""
+    if dry_run:
+        return
+    run_research_sweep()
+    run_join_sweep()
+
+
+def _background(fn) -> None:
+    """Runs ``fn`` on a daemon thread (the claim hook fires inside the board's dispatch lock; it must return at once)."""
+    import threading
+    threading.Thread(target=fn, name="bmc-epp-claim-hook", daemon=True).start()
+
+
+def on_kanban_task_claimed(*, task_id: str, assignee: Optional[str] = None, **_kwargs: Any) -> None:
+    """Registered for ``kanban_task_claimed`` (dispatcher process, right before the worker is spawned): the visualizer's
+    ``research_running`` / ``blog_drafting`` events. Observer only, never raises."""
+    try:
+        extra = _load_pipeline_extra()
+        if not extra:
+            return
+        db_url = db.resolve_database_url(extra)
+        if not db_url:
+            return  # events go to the visualizer database; nothing to do without one
+        store = EventPostPipelineStore(resolve_store_path(extra.get("store_path")))
+        board = extra.get("board")
+
+        def work() -> None:
+            try:
+                from hermes_cli import kanban_db as kb
+                from hermes_cli import kanban_db_connect as kbc
+
+                conn = kbc.connect(board=board)
+                try:
+                    research.track_claim(conn, pipeline.KanbanOps(kb), store, task_id, tenant=pipeline.TENANT, database_url=db_url)
+                finally:
+                    conn.close()
+            except Exception:  # noqa: BLE001
+                logger.exception("[event_post_pipeline] claim tracking failed for task=%s", task_id)
+
+        _background(work)
+    except Exception:  # noqa: BLE001
+        logger.exception("[event_post_pipeline] claim hook failed for task=%s", task_id)
 
 
 def _notification_message(result: dict) -> Optional[str]:
