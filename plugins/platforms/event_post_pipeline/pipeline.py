@@ -981,6 +981,19 @@ def _fresh_blog_body(body: str) -> str:
     return f"{BLOG_MARKER}\n{body}"
 
 
+def _stored_research_block(record: dict[str, Any], platform: str) -> str:
+    """Blog refine rounds carry the brief the first blog round got (never a new research task; DESIGN_11 WP8): the rendered
+    ``<site_context kind="research_brief">`` comment(s) the plugin stored when it delivered them, and only when ``handoff`` was on.
+    Empty string (so the body is byte-identical to before) for fb/ig, no research step, handoff off, or nothing delivered."""
+    research = record.get("research")
+    if platform != "blog" or not isinstance(research, dict) or research.get("handoff") is not True:
+        return ""
+    parts = research.get("rendered")
+    if not isinstance(parts, list):
+        return ""
+    return "\n\n".join(p for p in parts if isinstance(p, str) and p.strip())
+
+
 def _refine_task_body(*, record: dict[str, Any], platform: str, previous_draft: str, comment: str) -> str:
     return "\n\n".join(
         part for part in (
@@ -990,6 +1003,7 @@ def _refine_task_body(*, record: dict[str, Any], platform: str, previous_draft: 
             f"Quote: {defuse_fence_tags(record.get('quote', ''))}",
             "\n".join(render_intake_lines(record.get("intake") if isinstance(record.get("intake"), dict) else None, defuse_fence_tags)),
             "</untrusted_submission>",
+            _stored_research_block(record, platform),
             f"Previous {platform.upper()} draft:\n{defuse_fence_tags(previous_draft)}",
             f"Requested change (reviewer's own words):\n{defuse_fence_tags(comment)}",
             f"Only the {platform.upper()} content needs to be redrafted — the other platforms are "
