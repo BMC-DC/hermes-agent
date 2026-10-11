@@ -230,7 +230,7 @@ class SiteClient:
         data = parsed.get("data")
         if not isinstance(data, dict) or not isinstance(parsed.get("text"), str):
             return _unavailable("malformed reply")
-        return SiteResult(available=True, text=parsed["text"], data=data, corpus_hash=str(parsed.get("corpus_hash", "")), meta={"request_id": parsed.get("request_id", "")})
+        return SiteResult(available=True, text=parsed["text"], data=data, corpus_hash=str(parsed.get("corpus_hash", "")), meta={"request_id": parsed.get("request_id", ""), "service_version": parsed.get("service_version", "")})
 
     def verify_links(self, draft: Any, *, candidates: Optional[list[str]] = None) -> SiteResult:
         """``draft``: markdown string or the Stylus metadata dict. ``candidates``: page ids/URLs from the pre-draft context pack
@@ -245,4 +245,4 @@ class SiteClient:
         if not isinstance(data, dict) or not isinstance(data.get("ok"), bool) or not isinstance(parsed.get("text"), str):
             return _unavailable("malformed reply")
         return SiteResult(available=True, text=parsed["text"], data=data, passed=data["ok"], corpus_hash=str(parsed.get("corpus_hash", "")),
-                          meta={"request_id": parsed.get("request_id", "")})
+                          meta={"request_id": parsed.get("request_id", ""), "service_version": parsed.get("service_version", "")})

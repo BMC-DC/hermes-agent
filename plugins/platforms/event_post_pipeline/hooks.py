@@ -45,7 +45,9 @@ def on_kanban_task_completed(*, task_id: str, **_kwargs: Any) -> None:
     try:
         ops = pipeline.KanbanOps(kb)
         try:
-            result = pipeline.handle_stylus_completion(conn, ops, store, review_config, task_id, database_url=db_url)
+            result = pipeline.handle_stylus_completion(
+                conn, ops, store, review_config, task_id, database_url=db_url, shadow=_shadow_recorder(extra, store),
+            )
         except pipeline.PipelineError as exc:
             logger.error("[event_post_pipeline] task_completed handling failed for task=%s: %s", task_id, exc)
             ops.add_comment(conn, task_id, pipeline.CREATED_BY,
@@ -87,6 +89,15 @@ def on_kanban_task_completed(*, task_id: str, **_kwargs: Any) -> None:
         pipeline.track_notification(db_url, track_task_id, ok=False, message=message)
         return
     pipeline.track_notification(db_url, track_task_id, ok=True, message=message)
+
+
+def _shadow_recorder(extra: dict, store: EventPostPipelineStore):
+    """Task 08 shadow mode: ``None`` (the common case: flags off) or a log-only recorder. Never raises."""
+    try:
+        from plugins.platforms.event_post_pipeline.shadow import ShadowRecorder
+        return ShadowRecorder.from_extra(extra, store.path)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def on_kanban_task_blocked(*, task_id: str, assignee: Optional[str] = None, reason: Optional[str] = None, **_kwargs: Any) -> None:

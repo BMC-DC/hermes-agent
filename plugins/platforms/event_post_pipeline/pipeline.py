@@ -42,6 +42,17 @@ class PipelineError(RuntimeError):
     never for something safe to silently retry or guess past."""
 
 
+def _shadow_call(shadow: Any, method: str, **kwargs: Any) -> None:
+    """Shadow mode (task 08): hand an observation to ``shadow`` (a ``shadow.ShadowRecorder``, or ``None`` = flags off = do nothing).
+    Log-only by construction and doubly guarded here: nothing it does or raises may change what this pipeline does."""
+    if shadow is None:
+        return
+    try:
+        getattr(shadow, method)(**kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("event_post_pipeline: shadow %s failed (%s); ignored", method, type(exc).__name__)
+
+
 @dataclass(frozen=True)
 class KanbanOps:
     """The subset of ``hermes_cli.kanban_db`` this module calls, injected so
@@ -241,9 +252,11 @@ def _image_list(event_pack: dict[str, Any]) -> list[str]:
 
 def handle_intake(
     conn, ops: KanbanOps, store: EventPostPipelineStore, *, submission_id: str, event_pack: dict[str, Any],
-    database_url: Optional[str] = None,
+    database_url: Optional[str] = None, shadow: Any = None,
 ) -> str:
-    """Step 2: create the Stylus handoff. No LLM call. Returns the new task id."""
+    """Step 2: create the Stylus handoff. No LLM call. Returns the new task id.
+
+    ``shadow``: optional ``shadow.ShadowRecorder`` (task 08). Observation only, called after everything above has happened."""
     description = str(event_pack.get("description") or "")
     title = _short_title(description) if description else submission_id
     task_id = ops.create_task(
@@ -275,6 +288,7 @@ def handle_intake(
             "submitter_name": event_pack.get("submitterName"), "submitter_phone": event_pack.get("submitterPhone"),
         },
     )
+    _shadow_call(shadow, "record_intake", submission_id=submission_id, task_id=task_id, event_pack=event_pack)
     logger.info("event_post_pipeline: intake submission=%s -> task=%s", submission_id, task_id)
     return task_id
 
@@ -357,7 +371,7 @@ def _blog_seo_payload(blog: dict[str, Any]) -> dict[str, Any]:
 
 def handle_stylus_completion(
     conn, ops: KanbanOps, store: EventPostPipelineStore, review_config: ReviewClientConfig, task_id: str,
-    database_url: Optional[str] = None,
+    database_url: Optional[str] = None, shadow: Any = None,
 ) -> Optional[dict[str, Any]]:
     """The ``kanban_task_completed`` hook callback's core logic (transport/async
     concerns live in ``adapter.py``). Returns a dict describing what happened (for
@@ -375,17 +389,18 @@ def handle_stylus_completion(
     metadata = _extract_stylus_metadata(run, platform=platform)
     if refine:
         return _handle_refine_round_completion(
-            conn, ops, store, review_config, task, metadata, platform, database_url,
+            conn, ops, store, review_config, task, metadata, platform, database_url, shadow,
         )
-    return _handle_first_round_completion(conn, ops, store, review_config, task, metadata, database_url)
+    return _handle_first_round_completion(conn, ops, store, review_config, task, metadata, database_url, shadow)
 
 
 def _handle_first_round_completion(
-    conn, ops, store, review_config, task, metadata: dict[str, Any], database_url: Optional[str] = None,
+    conn, ops, store, review_config, task, metadata: dict[str, Any], database_url: Optional[str] = None, shadow: Any = None,
 ) -> dict[str, Any]:
     record = store.get_submission(task.idempotency_key) or {}
     blog = metadata["blog"]
     event_title = str(metadata.get("event_title") or _short_title(record.get("description") or task.title))
+    _shadow_call(shadow, "record_completion", task_id=task.id, platform="blog", round_no=1, blog=blog, pack=record)
     try:
         review_url = create_review(
             review_config, task_id=task.id, event_title=event_title, date=record.get("date", ""),
@@ -406,7 +421,7 @@ def _handle_first_round_completion(
 
 
 def _handle_refine_round_completion(
-    conn, ops, store, review_config, task, metadata: dict[str, Any], platform: str, database_url: Optional[str] = None,
+    conn, ops, store, review_config, task, metadata: dict[str, Any], platform: str, database_url: Optional[str] = None, shadow: Any = None,
 ) -> dict[str, Any]:
     record = _record_for_task(conn, ops, store, task)
     review_url = (record or {}).get("review_url")
@@ -414,6 +429,10 @@ def _handle_refine_round_completion(
         raise PipelineError(f"could not recover the review-page URL for refine task {task.id} (platform={platform})")
     slug = slug_from_review_url(review_url)
     blog = metadata.get("blog") if platform == "blog" else None
+    if platform == "blog":
+        _rm = _REFINE_IDEMPOTENCY_RE.match(task.idempotency_key or "")
+        _shadow_call(shadow, "record_completion", task_id=(record or {}).get("root_task_id") or (_rm.group("root") if _rm else task.id), platform="blog",
+                     round_no=int(_rm.group("round")) + 1 if _rm else None, blog=blog, pack=record)
     text = blog["body"] if platform == "blog" else metadata[platform]
     seo = _blog_seo_payload(blog) if platform == "blog" else None
     try:
@@ -459,6 +478,36 @@ def _current_platform_task(conn, ops: KanbanOps, root_task_id: str, platform: st
 
 
 def handle_review_action(
+    conn, ops: KanbanOps, store: EventPostPipelineStore, *, task_id: str, platform: str, action: str, comment: str,
+    database_url: Optional[str] = None, edited_text: Optional[str] = None, edited_seo: Optional[dict[str, Any]] = None,
+    shadow: Any = None,
+) -> dict[str, Any]:
+    result = _handle_review_action(
+        conn, ops, store, task_id=task_id, platform=platform, action=action, comment=comment, database_url=database_url,
+        edited_text=edited_text, edited_seo=edited_seo,
+    )
+    if shadow is not None and platform == "blog":
+        try:
+            # What the reviewer is deciding on: their hand-edit if it was made against the current draft, else Stylus's draft. Read-only.
+            current = _current_platform_task(conn, ops, task_id, platform)
+            final_text: Optional[str] = None
+            edited = False
+            if action == "edited":
+                final_text, edited = edited_text, True
+            elif action == "approved" and current is not None:
+                record = store.find_by_task_id(task_id) or store.get_submission(task_id) or {}
+                manual = (record.get("manual_edits") or {}).get(platform) or {}
+                if manual.get("base_task_id") == current.id and isinstance(manual.get("text"), str) and manual["text"].strip():
+                    final_text, edited = manual["text"], True
+                else:
+                    final_text = _previous_draft_text(ops.latest_run(conn, current.id), platform)
+            _shadow_call(shadow, "record_review_action", task_id=task_id, platform=platform, action=action, comment=comment or "", final_text=final_text, edited=edited)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("event_post_pipeline: shadow review-action capture failed (%s); ignored", type(exc).__name__)
+    return result
+
+
+def _handle_review_action(
     conn, ops: KanbanOps, store: EventPostPipelineStore, *, task_id: str, platform: str, action: str, comment: str,
     database_url: Optional[str] = None, edited_text: Optional[str] = None, edited_seo: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:

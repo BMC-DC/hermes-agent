@@ -63,7 +63,22 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
         # same "degrade gracefully" rule the rest of this plugin already follows.
         self._db_url: str = db.resolve_database_url(extra)
         self._review_base_url: str = str(extra.get("review_base_url", "https://spp.buddhameditationdc.org")).rstrip("/")
+        self._extra: dict = dict(extra)
         self._runner = None
+
+    def _shadow_recorder(self):
+        """Task 08 shadow mode: flags are read fresh per request (root config), falling back to this adapter's own ``extra``; ``None`` when
+        both flags are off or anything goes wrong. Never raises."""
+        try:
+            from plugins.platforms.event_post_pipeline.root_config import load_pipeline_extra
+            from plugins.platforms.event_post_pipeline.shadow import ShadowRecorder
+            try:
+                fresh = load_pipeline_extra()
+            except Exception:  # noqa: BLE001
+                fresh = {}
+            return ShadowRecorder.from_extra(fresh or self._extra, self._store.path)
+        except Exception:  # noqa: BLE001
+            return None
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         # Only this route pair's own HMAC secret gates startup here; the review-page
@@ -200,6 +215,7 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
             ops = pipeline.KanbanOps(kb)
             return pipeline.handle_intake(
                 conn, ops, self._store, submission_id=submission_id, event_pack=payload, database_url=self._db_url,
+                shadow=self._shadow_recorder(),
             )
         finally:
             conn.close()
@@ -276,7 +292,7 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
             return pipeline.handle_review_action(
                 conn, ops, self._store, task_id=action.task_id, platform=action.platform,
                 action=action.action, comment=action.comment, database_url=self._db_url,
-                edited_text=action.edited_text, edited_seo=action.edited_seo,
+                edited_text=action.edited_text, edited_seo=action.edited_seo, shadow=self._shadow_recorder(),
             )
         finally:
             conn.close()
