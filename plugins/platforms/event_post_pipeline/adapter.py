@@ -80,6 +80,18 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
         except Exception:  # noqa: BLE001
             return None
 
+    def _split_enabled(self) -> bool:
+        """``blog_enrichment.split`` read fresh per request (root config), falling back to this adapter's own ``extra``; off on any error."""
+        try:
+            from plugins.platforms.event_post_pipeline.root_config import load_pipeline_extra
+            try:
+                fresh = load_pipeline_extra()
+            except Exception:  # noqa: BLE001
+                fresh = {}
+            return pipeline.split_enabled(fresh or self._extra)
+        except Exception:  # noqa: BLE001
+            return False
+
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         # Only this route pair's own HMAC secret gates startup here; the review-page
         # bearer secret is resolved fresh (file or ${VAR}) by hooks.py, which is what
@@ -213,9 +225,11 @@ class EventPostPipelineAdapter(BasePlatformAdapter):
         conn = kbc.connect(board=self._board)
         try:
             ops = pipeline.KanbanOps(kb)
+            # ``split`` is passed only when the flag is on: flags off calls handle_intake exactly as before.
+            extra_kwargs = {"split": True} if self._split_enabled() else {}
             return pipeline.handle_intake(
                 conn, ops, self._store, submission_id=submission_id, event_pack=payload, database_url=self._db_url,
-                shadow=self._shadow_recorder(),
+                shadow=self._shadow_recorder(), **extra_kwargs,
             )
         finally:
             conn.close()

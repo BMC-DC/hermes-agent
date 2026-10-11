@@ -58,6 +58,10 @@ def on_kanban_task_completed(*, task_id: str, **_kwargs: Any) -> None:
 
     if result is None:
         return  # not one of this pipeline's tasks
+    _send_result_notification(result, db_url, task_id)
+
+
+def _send_result_notification(result: dict, db_url: Optional[str], task_id: str) -> None:
     message = _notification_message(result)
     if not message:
         return
@@ -177,9 +181,45 @@ def _run_async(coro_factory) -> None:
         pool.submit(asyncio.run, coro_factory()).result()
 
 
+def run_join_sweep(now: Optional[float] = None) -> list[dict]:
+    """Split-intake join sweep for a dispatcher-tick hook (registered by a later work package): loads config fresh,
+    runs ``pipeline.sweep_join`` and sends the ONE WhatsApp message for every page it creates. Never raises."""
+    import time
+    try:
+        extra = _load_pipeline_extra()
+        if not extra:
+            return []
+        db_url = db.resolve_database_url(extra)
+        review_config = ReviewClientConfig(
+            base_url=str(extra.get("review_base_url", "https://spp.buddhameditationdc.org")).rstrip("/"),
+            create_secret=security.resolve_review_create_secret(extra),
+        )
+        store = EventPostPipelineStore(resolve_store_path(extra.get("store_path")))
+        from hermes_cli import kanban_db as kb
+        from hermes_cli import kanban_db_connect as kbc
+
+        conn = kbc.connect(board=extra.get("board"))
+        try:
+            results = pipeline.sweep_join(
+                conn, pipeline.KanbanOps(kb), store, review_config, now=time.time() if now is None else now,
+                blog_wait_seconds=pipeline.blog_wait_seconds(extra), database_url=db_url,
+                shadow=_shadow_recorder(extra, store),
+            )
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        logger.exception("[event_post_pipeline] join sweep failed")
+        return []
+    for result in results:
+        _send_result_notification(result, db_url, result["task_id"])
+    return results
+
+
 def _notification_message(result: dict) -> Optional[str]:
     if result["action"] == "created_review_page":
         return f"New event post ready for review: {result['review_url']}"
+    if result["action"] == "updated_review_page" and result.get("late_blog"):
+        return f"Blog draft ready for review: {result['review_url']}"
     if result["action"] == "updated_review_page":
         return f"Refined {result['platform'].upper()} draft ready for review: {result['review_url']}"
     return None

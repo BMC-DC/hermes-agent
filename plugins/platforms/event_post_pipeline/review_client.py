@@ -56,6 +56,7 @@ def create_review(
     description: Optional[str] = None,
     quote: Optional[str] = None,
     intake: Optional[dict[str, Any]] = None,
+    blog_state: Optional[str] = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> str:
     """Creates the review page; returns its full URL.
@@ -83,6 +84,10 @@ def create_review(
         payload["quote"] = quote
     if intake:
         payload["intake"] = intake
+    if blog_state:
+        # Split-intake fallback only (blog not finished in time): the portal creates the blog row as
+        # ``refine_requested`` with an empty body. Sent only when set, so every other request is unchanged.
+        payload["blogState"] = blog_state
     result = _post_json(f"{config.base_url}/api/event-review", payload, config.create_secret, timeout=timeout)
     url = result.get("url")
     if not isinstance(url, str) or not url:

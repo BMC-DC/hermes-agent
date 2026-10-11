@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -36,6 +37,28 @@ CREATED_BY = "event-post-pipeline-plugin"
 _REFINE_IDEMPOTENCY_RE = re.compile(r"^(?P<root>.+)-(?P<platform>fb|ig|blog)-r(?P<round>\d+)$")
 _TITLE_MAX_CHARS = 80
 _REVIEW_URL_COMMENT_RE = re.compile(r"Review page:\s*(\S+)")
+
+# Split intake (``blog_enrichment.split``): first line of each task body tells Stylus (and this plugin) the task kind.
+SOCIAL_MARKER = "[task-kind: social]"
+BLOG_MARKER = "[task-kind: blog]"
+DEFAULT_BLOG_WAIT_SECONDS = 1200
+_SOCIAL_ALLOWED_KEYS = frozenset({"event_title", "fb", "ig"})
+_BLOG_ALLOWED_KEYS = frozenset({"event_title", "blog"})
+
+
+def split_enabled(extra: Optional[dict[str, Any]]) -> bool:
+    """``platforms.event_post_pipeline.extra.blog_enrichment.split`` — literal ``true`` only; default off."""
+    cfg = (extra or {}).get("blog_enrichment")
+    return isinstance(cfg, dict) and cfg.get("split") is True
+
+
+def blog_wait_seconds(extra: Optional[dict[str, Any]]) -> float:
+    """``blog_enrichment.blog_wait_seconds`` (default 1200); anything not a positive number falls back to the default."""
+    cfg = (extra or {}).get("blog_enrichment")
+    value = cfg.get("blog_wait_seconds") if isinstance(cfg, dict) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return float(DEFAULT_BLOG_WAIT_SECONDS)
+    return float(value)
 
 
 class PipelineError(RuntimeError):
@@ -258,17 +281,31 @@ def _image_list(event_pack: dict[str, Any]) -> list[str]:
 
 def handle_intake(
     conn, ops: KanbanOps, store: EventPostPipelineStore, *, submission_id: str, event_pack: dict[str, Any],
-    database_url: Optional[str] = None, shadow: Any = None,
+    database_url: Optional[str] = None, shadow: Any = None, split: bool = False,
+    blog_parents: Optional[list[str]] = None,
 ) -> str:
     """Step 2: create the Stylus handoff. No LLM call. Returns the new task id.
 
-    ``shadow``: optional ``shadow.ShadowRecorder`` (task 08). Observation only, called after everything above has happened."""
+    ``shadow``: optional ``shadow.ShadowRecorder`` (task 08). Observation only, called after everything above has happened.
+
+    ``split`` (``blog_enrichment.split``, default off = exactly the single task below): create S (social: FB+IG only,
+    this root id and key) and B (blog only, key ``<root>-blog-r1``). ``blog_parents`` is the hook for the research
+    task R (``parents=[R]``, a later work package); with none, B has no parent and does not wait for S."""
     description = str(event_pack.get("description") or "")
     title = _short_title(description) if description else submission_id
+    body = _wrap_untrusted(event_pack)
     task_id = ops.create_task(
-        conn, title=f"Draft social copy: {defuse_fence_tags(title)}", body=_wrap_untrusted(event_pack),
+        conn, title=f"Draft social copy: {defuse_fence_tags(title)}",
+        body=f"{SOCIAL_MARKER}\n{body}" if split else body,
         assignee="stylus", idempotency_key=submission_id, tenant=TENANT, created_by=CREATED_BY,
     )
+    blog_task_id: Optional[str] = None
+    if split:
+        blog_kwargs: dict[str, Any] = {"parents": list(blog_parents)} if blog_parents else {}
+        blog_task_id = ops.create_task(
+            conn, title=f"Draft blog: {defuse_fence_tags(title)}", body=f"{BLOG_MARKER}\n{body}",
+            assignee="stylus", idempotency_key=f"{task_id}-blog-r1", tenant=TENANT, created_by=CREATED_BY, **blog_kwargs,
+        )
     # Visualizer: "intake received" and "Stylus task created" both happen at this exact
     # call site (a single Kanban task creation serves both), so both events are recorded
     # here, back to back — see the plugin's own doc comment about merging near-simultaneous
@@ -298,6 +335,8 @@ def handle_intake(
             "submitter_name": event_pack.get("submitterName"), "submitter_phone": event_pack.get("submitterPhone"),
         },
     )
+    if split:
+        store.join_init(submission_id, blog_task_id)
     _shadow_call(shadow, "record_intake", submission_id=submission_id, task_id=task_id, event_pack=event_pack)
     logger.info("event_post_pipeline: intake submission=%s -> task=%s", submission_id, task_id)
     return task_id
@@ -345,7 +384,9 @@ def blog_shape_error(blog: Any) -> Optional[str]:
     )
 
 
-def _extract_stylus_metadata(run, *, platform: Optional[str] = None) -> dict[str, Any]:
+def _extract_stylus_metadata(
+    run, *, platform: Optional[str] = None, required: Optional[tuple[str, ...]] = None,
+) -> dict[str, Any]:
     """``platform`` is the single platform a refine round asked Stylus to redraft (its
     task body explicitly says "Only the {PLATFORM} content needs to be redrafted — the
     other platforms are unaffected", so Stylus correctly omits them). ``None`` means a
@@ -361,7 +402,8 @@ def _extract_stylus_metadata(run, *, platform: Optional[str] = None) -> dict[str
     if run is None or run.outcome != "completed" or not isinstance(run.metadata, dict):
         raise PipelineError(f"Stylus run for is missing or did not complete cleanly (outcome={getattr(run, 'outcome', None)!r})")
     metadata = run.metadata
-    required = (platform,) if platform else ("blog", "fb", "ig")
+    # ``required`` (split intake) names exactly the keys one half of the split must carry; it wins over ``platform``.
+    required = tuple(required) if required else ((platform,) if platform else ("blog", "fb", "ig"))
     for key in required:
         if key == "blog":
             if (err := blog_shape_error(metadata.get("blog"))) is not None:
@@ -381,7 +423,7 @@ def _blog_seo_payload(blog: dict[str, Any]) -> dict[str, Any]:
 
 def handle_stylus_completion(
     conn, ops: KanbanOps, store: EventPostPipelineStore, review_config: ReviewClientConfig, task_id: str,
-    database_url: Optional[str] = None, shadow: Any = None,
+    database_url: Optional[str] = None, shadow: Any = None, now: Optional[float] = None,
 ) -> Optional[dict[str, Any]]:
     """The ``kanban_task_completed`` hook callback's core logic (transport/async
     concerns live in ``adapter.py``). Returns a dict describing what happened (for
@@ -396,6 +438,18 @@ def handle_stylus_completion(
     run = ops.latest_run(conn, task_id)
     refine = _REFINE_IDEMPOTENCY_RE.match(task.idempotency_key or "")
     platform = refine.group("platform") if refine else None
+    kind = _split_kind(store, task, refine)
+    if kind is not None:
+        when = time.time() if now is None else now
+        if kind == "social":
+            metadata = _extract_stylus_metadata(run, required=("fb", "ig"))
+            _warn_stray_keys(task, metadata, _SOCIAL_ALLOWED_KEYS)
+            return _handle_split_social_completion(conn, ops, store, review_config, task, metadata, database_url, shadow, when)
+        metadata = _extract_stylus_metadata(run, required=("blog",))
+        _warn_stray_keys(task, metadata, _BLOG_ALLOWED_KEYS)
+        return _handle_split_blog_completion(
+            conn, ops, store, review_config, task, refine.group("root"), metadata, database_url, shadow, when,
+        )
     metadata = _extract_stylus_metadata(run, platform=platform)
     if refine:
         return _handle_refine_round_completion(
@@ -433,6 +487,7 @@ def _handle_first_round_completion(
 
 def _handle_refine_round_completion(
     conn, ops, store, review_config, task, metadata: dict[str, Any], platform: str, database_url: Optional[str] = None, shadow: Any = None,
+    first_draft: bool = False,
 ) -> dict[str, Any]:
     record = _record_for_task(conn, ops, store, task)
     review_url = (record or {}).get("review_url")
@@ -443,7 +498,7 @@ def _handle_refine_round_completion(
     if platform == "blog":
         _rm = _REFINE_IDEMPOTENCY_RE.match(task.idempotency_key or "")
         _shadow_call(shadow, "record_completion", task_id=(record or {}).get("root_task_id") or (_rm.group("root") if _rm else task.id), platform="blog",
-                     round_no=int(_rm.group("round")) + 1 if _rm else None, blog=blog, pack=record)
+                     round_no=(1 if first_draft else int(_rm.group("round")) + 1) if _rm else None, blog=blog, pack=record)
     text = blog["body"] if platform == "blog" else metadata[platform]
     seo = _blog_seo_payload(blog) if platform == "blog" else None
     try:
@@ -466,7 +521,183 @@ def _handle_refine_round_completion(
     return {
         "action": "updated_review_page", "task_id": task.id, "root_task_id": root_task_id,
         "platform": platform, "review_url": review_url,
+        # Split intake only: the blog that arrived after the fallback page (hooks sends the one allowed extra message).
+        **({"late_blog": True} if first_draft else {}),
     }
+
+
+# --- Split intake: S (fb+ig) and B (blog) joined into ONE review page ---------------------------------
+#
+# S and B run in parallel in separate Stylus sessions. Each completion stores its validated half in the
+# plugin store (``record["join"]``); whichever half arrives second triggers the single ``create_review``.
+# Idempotent (a repeated completion keeps the first stored half and the atomic claim lets exactly one
+# caller create the page), restart-safe (all state is in the store file, re-read under a file lock), and
+# ``sweep_join`` (called from a dispatcher-tick hook) covers a stuck blog (fallback page) and a failed
+# page creation (retry).
+
+
+def _warn_stray_keys(task, metadata: dict[str, Any], allowed: frozenset) -> None:
+    stray = sorted(str(k) for k in metadata if k not in allowed)
+    if stray:
+        logger.warning(
+            "event_post_pipeline: split task %s (%s) completed with unexpected metadata keys %s; ignored",
+            task.id, task.idempotency_key, stray,
+        )
+
+
+def _split_kind(store: EventPostPipelineStore, task, refine) -> Optional[str]:
+    """``"social"`` / ``"blog"`` when ``task`` is one half of a split intake, else ``None`` (flags-off path)."""
+    body = getattr(task, "body", None) or ""
+    if refine is None:
+        if body.lstrip().startswith(SOCIAL_MARKER):
+            return "social"
+        record = store.get_submission(task.idempotency_key) or {}
+        return "social" if (record.get("join") or {}).get("mode") == "split" else None
+    if refine.group("platform") != "blog" or int(refine.group("round")) != 1:
+        return None
+    if body.lstrip().startswith(BLOG_MARKER):
+        return "blog"
+    record = store.find_by_task_id(refine.group("root")) or {}
+    join = record.get("join") or {}
+    return "blog" if join.get("mode") == "split" and join.get("blog_task_id") == task.id else None
+
+
+def _handle_split_social_completion(
+    conn, ops, store, review_config, task, metadata: dict[str, Any], database_url: Optional[str], shadow: Any, now: float,
+) -> dict[str, Any]:
+    submission_id = task.idempotency_key
+    record = store.get_submission(submission_id)
+    if record is None:
+        raise PipelineError(f"no stored submission for split social task {task.id} (key={submission_id!r}); cannot join")
+    store.join_init(submission_id, None)
+    event_title = str(metadata.get("event_title") or _short_title(record.get("description") or task.title))
+    half = {"task_id": task.id, "event_title": event_title, "fb": metadata["fb"], "ig": metadata["ig"], "completed_at": now}
+    record, newly = store.join_store_half(submission_id, "social", half)
+    if newly and not (record["join"].get("blog")):
+        _track_event_only(database_url, task.id, "join_waiting", "info", detail="Facebook/Instagram drafts done; waiting for the blog draft")
+    return _advance_join(conn, ops, store, review_config, submission_id, now, database_url, shadow)
+
+
+def _handle_split_blog_completion(
+    conn, ops, store, review_config, task, root_task_id: str, metadata: dict[str, Any], database_url: Optional[str],
+    shadow: Any, now: float,
+) -> dict[str, Any]:
+    record = store.find_by_task_id(root_task_id)
+    if record is None:
+        raise PipelineError(f"no stored submission for split blog task {task.id} (root={root_task_id!r}); cannot join")
+    submission_id = record["submission_id"]
+    store.join_init(submission_id, task.id)
+    join = store.get_submission(submission_id)["join"]
+    if join.get("state") in ("done", "fallback"):
+        if join.get("state") == "fallback" and not join.get("late_applied"):
+            # The page exists without the blog (fallback): this is the late blog, applied through the existing refine path.
+            result = _handle_refine_round_completion(
+                conn, ops, store, review_config, task, metadata, "blog", database_url, shadow, first_draft=True,
+            )
+            store.join_set(submission_id, {"late_applied": True})
+            return result
+        return {"action": "join_duplicate", "task_id": task.id, "root_task_id": root_task_id}
+    blog = metadata["blog"]
+    event_title = str(metadata.get("event_title") or "") or None
+    half = {"task_id": task.id, "blog": blog, "event_title": event_title, "completed_at": now}
+    record, newly = store.join_store_half(submission_id, "blog", half)
+    if newly:
+        _shadow_call(shadow, "record_completion", task_id=root_task_id, platform="blog", round_no=1, blog=blog, pack=record)
+        if not record["join"].get("social"):
+            _track_event_only(database_url, root_task_id, "join_waiting", "info", detail="Blog draft done; waiting for the Facebook/Instagram drafts")
+    return _advance_join(conn, ops, store, review_config, submission_id, now, database_url, shadow)
+
+
+def _advance_join(
+    conn, ops, store, review_config, submission_id: str, now: float, database_url: Optional[str], shadow: Any, *, fallback: bool = False,
+) -> dict[str, Any]:
+    """Creates the page if the join is ready (both halves, or ``fallback`` with social only). Exactly one caller wins the claim."""
+    record = store.get_submission(submission_id) or {}
+    join = record.get("join") or {}
+    root = record.get("root_task_id") or ((join.get("social") or {}).get("task_id")) or submission_id
+    waiting = {"action": "join_waiting", "task_id": root, "root_task_id": root}
+    social, blog_half = join.get("social"), join.get("blog")
+    if join.get("state") in ("done", "fallback"):
+        return {"action": "join_noop", "task_id": root, "root_task_id": root}
+    if not social or (not blog_half and not fallback):
+        return waiting
+    if not store.join_claim(submission_id, now):
+        return {"action": "join_noop", "task_id": root, "root_task_id": root}
+    event_title = social["event_title"]
+    kwargs: dict[str, Any] = {}
+    if blog_half:
+        blog = blog_half["blog"]
+        blog_body, blog_seo = blog["body"], _blog_seo_payload(blog)
+    else:
+        blog_body, blog_seo = "", _blog_seo_payload({})
+        kwargs["blog_state"] = "in_progress"
+    try:
+        review_url = create_review(
+            review_config, task_id=root, event_title=event_title, date=record.get("date", ""),
+            images=record.get("images", []), fb=social["fb"], ig=social["ig"], blog_body=blog_body, blog_seo=blog_seo,
+            description=record.get("description"), quote=record.get("quote"), intake=record.get("intake"),
+            submitter_name=record.get("submitter_name"), submitter_phone=record.get("submitter_phone"), **kwargs,
+        )
+    except ReviewClientError as exc:
+        store.join_set(submission_id, {"state": "waiting", "claimed_at": None})  # releases the claim; the sweep or a retry tries again
+        raise PipelineError(str(exc)) from exc
+    except BaseException:
+        store.join_set(submission_id, {"state": "waiting", "claimed_at": None})
+        raise
+    # From here on the page exists: record that first so nothing below can ever cause a second page.
+    store.join_set(submission_id, {"state": "fallback" if not blog_half else "done", "review_url": review_url, "claimed_at": None})
+    store.upsert_submission(submission_id, {"review_url": review_url})
+    ops.add_comment(conn, root, CREATED_BY, f"Review page: {review_url}")
+    _track_run(
+        database_url, root, title=event_title, state="waiting", current_step="awaiting_review",
+        step="stylus_done", status="ok", detail=review_url,
+    )
+    if blog_half:
+        _track_event_only(database_url, root, "join_done", "ok", detail="Facebook/Instagram and blog drafts joined; review page created")
+    else:
+        _track_event_only(database_url, root, "join_done", "ok", detail="review page created without the blog draft (blog row in progress)")
+        _track_event_only(
+            database_url, root, "blog_late_fallback", "info",
+            detail="blog draft not finished within the wait limit; the blog will be added to the page when it completes",
+        )
+    _link_submission_if_resolvable(database_url, root, review_url)
+    result = {"action": "created_review_page", "task_id": root, "root_task_id": root, "review_url": review_url}
+    if not blog_half:
+        result["fallback"] = True
+    return result
+
+
+def sweep_join(
+    conn, ops: KanbanOps, store: EventPostPipelineStore, review_config: ReviewClientConfig, *, now: float,
+    blog_wait_seconds: float = DEFAULT_BLOG_WAIT_SECONDS, database_url: Optional[str] = None, shadow: Any = None,
+) -> list[dict[str, Any]]:
+    """Tick-hook entry point (registered by a later work package). For every split submission without a page yet:
+    both halves present -> (re)try the page creation; only social and ``blog_wait_seconds`` elapsed since its
+    completion -> create the page with the blog row in progress (fallback); only blog present -> keep waiting.
+    Returns one result dict per page created (``action == "created_review_page"``) so the caller can send the
+    single WhatsApp message. Never raises: a failing creation is logged and retried on the next tick."""
+    created: list[dict[str, Any]] = []
+    for record in store.join_pending():
+        join = record.get("join") or {}
+        social = join.get("social")
+        if not social:
+            continue
+        if join.get("blog"):
+            fallback = False
+        elif now - float(social.get("completed_at") or now) >= blog_wait_seconds:
+            fallback = True
+        else:
+            continue
+        try:
+            result = _advance_join(
+                conn, ops, store, review_config, record["submission_id"], now, database_url, shadow, fallback=fallback,
+            )
+        except Exception as exc:  # noqa: BLE001 - one bad submission must not stop the sweep
+            logger.error("event_post_pipeline: join sweep failed for submission=%s: %s", record.get("submission_id"), exc)
+            continue
+        if result.get("action") == "created_review_page":
+            created.append(result)
+    return created
 
 
 # --- Step 5/6: reacting to a review-page action -----------------------------------------
@@ -569,6 +800,9 @@ def _handle_review_action(
         next_round = len(_platform_round_tasks(conn, ops, task_id, platform)) + 1
         idempotency_key = f"{task_id}-{platform}-r{next_round}"
         body = _refine_task_body(record=record, platform=platform, previous_draft=previous_draft, comment=comment)
+        if platform == "blog" and not previous_draft.strip() and (record.get("join") or {}).get("mode") == "split":
+            # Split intake, fallback page: the blog task never produced a draft, so there is nothing to revise.
+            body = _fresh_blog_body(body)
         new_task_id = ops.create_task(
             conn, title=f"Redraft {platform.upper()} (round {next_round}): {defuse_fence_tags(root_task.title.removeprefix('Draft social copy: '))}",
             body=body, assignee="stylus", idempotency_key=idempotency_key, tenant=TENANT, created_by=CREATED_BY,
@@ -629,6 +863,15 @@ def _previous_draft_text(run, platform: str) -> str:
     if platform == "blog" and isinstance(value, dict):
         return str(value.get("body") or "")
     return str(value or "")
+
+
+def _fresh_blog_body(body: str) -> str:
+    """A blog redraft where the first draft was never produced: write it fresh from the pack (blog marker kept)."""
+    body = body.replace(
+        "Previous BLOG draft:\n",
+        "Previous BLOG draft: none (the first draft was not produced; write the blog post fresh from the submission above).\n", 1,
+    )
+    return f"{BLOG_MARKER}\n{body}"
 
 
 def _refine_task_body(*, record: dict[str, Any], platform: str, previous_draft: str, comment: str) -> str:
