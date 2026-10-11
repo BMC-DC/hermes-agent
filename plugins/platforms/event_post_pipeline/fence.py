@@ -47,7 +47,10 @@ import re
 import unicodedata
 from typing import Any
 
-FENCE_TAG_NAMES = ("untrusted_submission",)
+# ``site_candidates`` / ``site_context`` (research step, DESIGN_11): the plugin-written blocks that carry
+# site material into a WebMaster task body and a research brief into a Stylus task comment. Text that
+# is placed inside them is defused exactly like text inside the submission fence.
+FENCE_TAG_NAMES = ("untrusted_submission", "site_candidates", "site_context")
 DEFUSED_OPEN = "&lt;"
 
 # Angle-bracket look-alikes (all folded to "<" in the projection).
@@ -59,7 +62,7 @@ _EXTRA_INVISIBLE = frozenset("ㅤᅟᅠﾠ⠀឴឵")
 _HOMOGLYPHS = {
     "е": "e", "о": "o", "і": "i", "ѕ": "s", "ԁ": "d", "а": "a", "р": "p", "с": "c", "ԍ": "g",
     "ο": "o", "υ": "u", "ι": "i", "ε": "e", "ɡ": "g", "ı": "i", "ո": "n", "ս": "u", "ⅰ": "i",
-    "ｕ": "u", "ᴜ": "u", "ɴ": "n", "ᴛ": "t", "ʀ": "r", "ᴅ": "d", "ꜱ": "s",
+    "ｕ": "u", "ᴜ": "u", "ɴ": "n", "ᴛ": "t", "ʀ": "r", "ᴅ": "d", "ꜱ": "s", "х": "x",
 }
 _TRANSLATE = {ord(c): "<" for c in _OPEN_LOOKALIKES}
 _TRANSLATE.update({ord(k): v for k, v in _SLASH_LOOKALIKES.items()})
