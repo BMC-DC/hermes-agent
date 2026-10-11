@@ -281,3 +281,162 @@ def planner_from_extra(extra: Optional[dict[str, Any]]) -> Optional[ResearchPlan
     """``None`` unless ``research.enabled`` is literally true (flags off: no planner, no behaviour change)."""
     cfg = ResearchConfig.from_extra(extra)
     return ResearchPlanner(cfg) if cfg.enabled else None
+
+
+# --------------------------------------------------------------------------------------------- completion
+# WebMaster answers with ``kanban_complete(summary=..., metadata={"schema": 1, "research_brief": {...}})``.
+# Two checkpoints, same validator (brief.py):
+#   * the ``pre_tool_call`` guard (``guard_research_completion``), in WebMaster's own turn, BEFORE the completion
+#     commits: blocks on any finding (readable message, at most ``MAX_GUARD_REJECTIONS`` times, then only
+#     ``nothing_useful`` is accepted) and, when it passes, writes the rendered ``<site_context>`` comment(s) on B;
+#   * the ``kanban_task_completed`` hook (``handle_research_completion``): the backup (guard absent/bypassed). It
+#     drops offending items, keeps the rest, and writes the same comments (idempotent, keyed by the brief sha).
+# Research completion never creates a review page and never sends a WhatsApp message.
+
+MAX_GUARD_REJECTIONS = 2
+_REJECTIONS: dict[str, int] = {}
+_SITE_URL_RE = re.compile(r"https?://[^\s<>\"'|)]+")
+
+
+def _brief_module():
+    from plugins.platforms.event_post_pipeline import brief
+    return brief
+
+
+def urls_from_body(body: Optional[str]) -> list[str]:
+    """Fallback ``allowed_urls`` when the store record is gone: the urls the plugin itself put in R's ``<site_candidates>`` block."""
+    text = body or ""
+    start = text.find("<site_candidates>")
+    if start < 0:
+        return []
+    out: list[str] = []
+    for m in _SITE_URL_RE.finditer(text[start:]):
+        u = m.group(0).rstrip(".,;:")
+        if u not in out:
+            out.append(u)
+    return out
+
+
+def _research_record(store, submission_id: str) -> dict[str, Any]:
+    rec = (store.get_submission(submission_id) or {}).get("research")
+    return rec if isinstance(rec, dict) else {}
+
+
+def _allowed_urls(store, task) -> list[str]:
+    rec = _research_record(store, submission_id_for_key(task.idempotency_key))
+    urls = rec.get("allowed_urls")
+    if isinstance(urls, list) and urls:
+        return [u for u in urls if isinstance(u, str)]
+    return urls_from_body(getattr(task, "body", None))
+
+
+def _blog_target(conn, ops, store, task) -> tuple[Optional[str], bool]:
+    """``(blog_task_id, handoff)``: B and whether it is linked under R (the brief is delivered only then)."""
+    rec = _research_record(store, submission_id_for_key(task.idempotency_key))
+    children = [c for c in ops.child_ids(conn, task.id)]
+    blog_id = rec.get("blog_task_id") or (children[0] if children else None)
+    handoff = (rec.get("handoff") is True) or bool(blog_id and blog_id in children)
+    return blog_id, bool(handoff and blog_id)
+
+
+def deliver_brief(conn, ops, blog_task_id: str, rendered, author: str) -> int:
+    """Writes each rendered part as a comment on B unless a comment with the same brief sha and part label is already
+    there (guard and hook both call this; the second call writes nothing). Returns how many comments were written."""
+    existing = [c.body for c in ops.list_comments(conn, blog_task_id) if 'kind="research_brief"' in (c.body or "")]
+    written = 0
+    for part in rendered.parts:
+        marker = re.search(r'part="(\d+/\d+)" sha="([0-9a-f]{8})"', part)
+        key = f'part="{marker.group(1)}" sha="{marker.group(2)}"' if marker else None
+        if key and any(key in body for body in existing):
+            continue
+        ops.add_comment(conn, blog_task_id, author, part)
+        existing.append(part)
+        written += 1
+    return written
+
+
+def _brief_metadata(run) -> Optional[dict[str, Any]]:
+    if run is None or getattr(run, "outcome", None) != "completed" or not isinstance(run.metadata, dict):
+        return None
+    return run.metadata
+
+
+def evaluate_brief(metadata: Any, allowed_urls: list[str], extra: Optional[dict[str, Any]]):
+    """``(clean, findings, rendered)`` for a research completion's metadata."""
+    brief = _brief_module()
+    rules = brief.BriefRules.from_extra(_cfg_dict(extra))
+    clean, findings = brief.validate_brief(metadata, allowed_urls, rules)
+    return clean, findings, brief.render_brief(clean)
+
+
+def handle_research_completion(
+    conn, ops, store, task_id: str, *, tenant: str, author: str, extra: Optional[dict[str, Any]] = None,
+    database_url: Optional[str] = None, shadow: Any = None, now: Optional[float] = None,
+) -> Optional[dict[str, Any]]:
+    """The ``kanban_task_completed`` hook's research branch. ``None`` when ``task_id`` is not a research task (the caller
+    then carries on with the Stylus path). Never touches the review page or WhatsApp."""
+    task = ops.get_task(conn, task_id)
+    if not is_research_task(task, tenant):
+        return None
+    sid = submission_id_for_key(task.idempotency_key)
+    rec = _research_record(store, sid)
+    blog_id, handoff = _blog_target(conn, ops, store, task)
+    metadata = _brief_metadata(ops.latest_run(conn, task_id))
+    clean, findings, rendered = evaluate_brief(metadata, _allowed_urls(store, task), extra)
+    status = clean["research_brief"]["status"]
+    outcome = "invalid" if metadata is None else ("nothing_useful" if status == "nothing_useful" else "done")
+    delivered = False
+    if handoff and blog_id and rendered.parts:
+        deliver_brief(conn, ops, blog_id, rendered, author)
+        delivered = True
+    patch = {**rec, "task_id": task_id, "state": "done", "outcome": outcome, "sha": rendered.sha, "delivered": delivered,
+             "findings": len(findings), "completed_at": time.time() if now is None else now}
+    if delivered:
+        patch["rendered"] = list(rendered.parts)  # kept for blog refine rounds (WP8)
+    try:
+        store.upsert_submission(sid, {"research": patch})
+    except Exception:  # noqa: BLE001
+        logger.exception("event_post_pipeline: could not store research outcome for %s", sid)
+    return {
+        "action": "research_done", "task_id": task_id, "root_task_id": (store.get_submission(sid) or {}).get("root_task_id"),
+        "outcome": outcome, "delivered": delivered, "sha": rendered.sha, "findings": len(findings), "submission_id": sid,
+        "items": _item_counts(clean),
+    }
+
+
+def _item_counts(clean: dict[str, Any]) -> dict[str, int]:
+    rb = clean.get("research_brief") or {}
+    return {
+        "related_posts": len(rb.get("related_posts") or []), "suggested_links": len(rb.get("suggested_links") or []),
+        "teaching_background": len(rb.get("teaching_background") or []), "cautions": len(rb.get("cautions") or []),
+    }
+
+
+def guard_research_completion(
+    conn, ops, store, task_id: str, args: dict[str, Any], *, tenant: str, author: str, extra: Optional[dict[str, Any]] = None,
+) -> Optional[dict[str, str]]:
+    """``pre_tool_call`` check for a research task's ``kanban_complete`` (NO tool restriction; owner decision). ``None`` =
+    let it through (and the rendered brief comment(s) are already on B); else a ``{"action": "block", "message"}`` dict."""
+    task = ops.get_task(conn, task_id)
+    if not is_research_task(task, tenant):
+        return None
+    brief = _brief_module()
+    metadata = args.get("metadata")
+    clean, findings, rendered = evaluate_brief(metadata, _allowed_urls(store, task), extra)
+    findings = [*brief.validate_summary(args.get("summary")), *findings]
+    rejected = _REJECTIONS.get(task_id, 0)
+    only_nothing = rejected >= MAX_GUARD_REJECTIONS
+    if findings or (only_nothing and clean["research_brief"]["status"] != "nothing_useful"):
+        _REJECTIONS[task_id] = rejected + 1
+        if only_nothing:
+            tail = ("Two attempts were already refused. Complete now with status nothing_useful (empty lists, "
+                    'description null) and summary "research brief ready"; the writer will start without a brief.')
+        else:
+            tail = (f"Fix exactly these items and call kanban_complete again (attempt {rejected + 1} of {MAX_GUARD_REJECTIONS}); "
+                    "if you cannot, complete with status nothing_useful. The task is still open, nothing was lost.")
+        shown = brief.format_findings(findings) if findings else "- the brief must be complete with status nothing_useful now"
+        return {"action": "block", "message": "kanban_complete blocked: the research brief did not pass the code check:\n" + shown + "\n" + tail}
+    blog_id, handoff = _blog_target(conn, ops, store, task)
+    if handoff and blog_id and rendered.parts:
+        deliver_brief(conn, ops, blog_id, rendered, author)
+    return None

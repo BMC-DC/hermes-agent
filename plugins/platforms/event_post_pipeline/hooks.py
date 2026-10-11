@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from plugins.platforms.event_post_pipeline import db, pipeline, security, whatsapp_notify
+from plugins.platforms.event_post_pipeline import db, pipeline, research, security, whatsapp_notify
 from plugins.platforms.event_post_pipeline.review_client import ReviewClientConfig
 from plugins.platforms.event_post_pipeline.root_config import load_pipeline_extra as _load_pipeline_extra
 from plugins.platforms.event_post_pipeline.store import EventPostPipelineStore, resolve_store_path
@@ -44,6 +44,17 @@ def on_kanban_task_completed(*, task_id: str, **_kwargs: Any) -> None:
     conn = kbc.connect(board=board)
     try:
         ops = pipeline.KanbanOps(kb)
+        try:
+            # Research task (WebMaster): events/bookkeeping only. Never a review page, never a WhatsApp message.
+            research_result = research.handle_research_completion(
+                conn, ops, store, task_id, tenant=pipeline.TENANT, author=pipeline.CREATED_BY, extra=extra,
+                database_url=db_url, shadow=_shadow_recorder(extra, store),
+            )
+        except Exception:  # noqa: BLE001 - a research problem must never break a completion
+            logger.exception("[event_post_pipeline] research completion handling failed for task=%s", task_id)
+            return
+        if research_result is not None:
+            return
         try:
             result = pipeline.handle_stylus_completion(
                 conn, ops, store, review_config, task_id, database_url=db_url, shadow=_shadow_recorder(extra, store),
