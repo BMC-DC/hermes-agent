@@ -1,4 +1,4 @@
-"""Postgres access for the ProjectManager plugin — schema ``pm`` in spp-postgres
+"""Postgres access for the Captain plugin — schema ``pm`` in spp-postgres
 (extra/plans/pm/migrations/0001_pm_schema.sql).
 
 Rules:
@@ -36,7 +36,7 @@ class StoreError(RuntimeError):
 
 
 APPROVAL_KINDS = (
-    "clickup_create_task", "clickup_update_task", "clickup_comment",
+    "clickup_create_task", "clickup_update_task", "clickup_comment", "clickup_delete_task",
     "meeting_create", "meeting_update", "meeting_cancel",
 )
 

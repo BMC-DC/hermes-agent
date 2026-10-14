@@ -5,9 +5,10 @@ Order of checks, cheapest first, so ordinary traffic costs one regex:
 1. WhatsApp DM? text parses as a decision ("yes", "NO 12", "👍" ...)?
    Otherwise return None (normal dispatch), with no config or DB access.
 2. pm.yaml present, sender is the effective approver (phone/LID aliases via
-   the bridge's mapping files), and an approval is pending -> decide it in the
-   DB (conditional UPDATE: a repeated YES never decides twice), send a short
-   acknowledgement, and drop the message ({"action": "skip"}).
+   the ROOT bridge session's mapping files, messaging.whatsapp_aliases), and
+   an approval is pending -> decide it in the DB (conditional UPDATE: a
+   repeated YES never decides twice), send a short acknowledgement, and drop
+   the message ({"action": "skip"}).
 3. Any error -> log and return None: a PM failure must never break chat.
 
 Replies that are not a clear decision pass through untouched to the routed
@@ -57,13 +58,13 @@ def on_pre_gateway_dispatch(event: Any = None, **_: Any) -> Optional[dict]:
         text = getattr(event, "text", "") or ""
         if service.parse_reply(text) is None or not pm_config.is_configured():
             return None
-        from gateway.whatsapp_identity import expand_whatsapp_aliases
-
-        sender_aliases = expand_whatsapp_aliases(user_id) | expand_whatsapp_aliases(chat_id)
+        # Root-session aliases: under a routed profile the gateway's own lookup cannot map a LID.
+        aliases_of = messaging.whatsapp_aliases
+        sender_aliases = aliases_of(user_id) | aliases_of(chat_id)
         cfg = pm_config.load_config()
         with store.connection() as conn:
             outcome = service.handle_reply(cfg, conn, sender_aliases=sender_aliases, text=text,
-                                           aliases_of=expand_whatsapp_aliases)
+                                           aliases_of=aliases_of)
         if not outcome.handled:
             return None
         if outcome.reply:

@@ -1,4 +1,4 @@
-*Weekly project brief*
+*Captain · Weekly project brief*
 Period: Mon 12 Oct 2026 to Sun 18 Oct 2026 (America/New_York time)
 Generated: Mon 19 Oct 2026 09:00 EDT
 
@@ -196,5 +196,5 @@ Assigned to the shared admin account: 4
 
 Note: 2 tasks left out by the exclude tags in pm.yaml.
 
-*Agent note*
+*Captain's note*
 A note.

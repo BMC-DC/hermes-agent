@@ -1,4 +1,4 @@
-"""Command-line entry for the ProjectManager scheduled jobs and operator checks.
+"""Command-line entry for the Captain scheduled jobs and operator checks.
 
     python -m plugins.project_manager.jobs <command> [--dry-run] [--force] [--now ISO8601]
 

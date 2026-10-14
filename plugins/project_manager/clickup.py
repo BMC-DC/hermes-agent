@@ -1,4 +1,4 @@
-"""Minimal ClickUp REST v2 client for the ProjectManager plugin.
+"""Minimal ClickUp REST v2 client for the Captain plugin.
 
 Sync ``urllib``, same style as the pipeline plugins' HTTP clients. The token
 comes from env ``CLICKUP_API_TOKEN`` (Doppler vidu/prd -> /opt/data/.env) and
@@ -193,8 +193,9 @@ class ClickUpClient:
     def get_space(self, space_id: str) -> dict[str, Any]:
         return self._get(f"/space/{urllib.parse.quote(space_id)}")
 
-    def get_task(self, task_id: str) -> dict[str, Any]:
-        return self._get(f"/task/{urllib.parse.quote(task_id)}")
+    def get_task(self, task_id: str, *, include_subtasks: bool = False) -> dict[str, Any]:
+        query = [("include_subtasks", "true")] if include_subtasks else None
+        return self._get(f"/task/{urllib.parse.quote(task_id)}", query)
 
     # ── writes (only the approval executor calls these) ──────────────────
     def create_task(self, list_id: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -206,3 +207,18 @@ class ClickUpClient:
     def create_comment(self, task_id: str, text: str) -> dict[str, Any]:
         return self._write("POST", f"/task/{urllib.parse.quote(task_id)}/comment",
                            {"comment_text": text, "notify_all": False})
+
+    def delete_task(self, task_id: str) -> None:
+        """DELETE /task/{id}; ClickUp answers 204 (or 200) with no body. Not retried on a
+        network error: the delete may have happened, so the caller reports it as ambiguous."""
+        path = f"/task/{urllib.parse.quote(task_id)}"
+        for attempt in range(2):
+            resp = self._request("DELETE", path)
+            if resp.status in (200, 204):
+                return None
+            if resp.status == 429 and attempt == 0:
+                self._sleep(self._rate_limit_wait(resp))
+                continue
+            raise ClickUpError(f"DELETE {path} -> HTTP {resp.status} {self._error_text(resp)}".strip(),
+                               status=resp.status, ambiguous=resp.status >= 500)
+        raise ClickUpError(f"DELETE {path} rate-limited twice", status=429)

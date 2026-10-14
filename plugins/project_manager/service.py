@@ -1,4 +1,4 @@
-"""ProjectManager orchestration: the weekly brief, meeting reminders, the
+"""Captain orchestration: the weekly brief, meeting reminders, the
 approval flow (propose -> decide -> execute) and the cached task read used by
 the agent tools. Cron scripts (``jobs.py``), tools (``tools.py``) and the reply
 hook (``hooks.py``) are thin wrappers around these functions.
@@ -24,7 +24,8 @@ from plugins.project_manager import render, rules, store
 from plugins.project_manager.clickup import ClickUpClient, ClickUpError, token_from_env
 from plugins.project_manager.config import PMConfig
 from plugins.project_manager.messaging import (
-    DeliveryError, Sender, deliver, effective_approver, send_whatsapp, target_chat_id,
+    DeliveryError, Sender, deliver, effective_approver, person_for_whatsapp_sender, send_whatsapp,
+    target_chat_id,
 )
 
 logger = logging.getLogger("plugins.project_manager")
@@ -285,11 +286,12 @@ def _assignees(ids: Any, key: str, people: dict[str, dict], cfg: PMConfig) -> li
     return out
 
 
-def _scoped_task(client: ClickUpClient, cfg: PMConfig, task_id: Any) -> dict:
+def _scoped_task(client: ClickUpClient, cfg: PMConfig, task_id: Any, *, include_subtasks: bool = False) -> dict:
     if not isinstance(task_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", task_id.strip()):
         raise ProposalError("'task_id' must be a ClickUp task id")
     try:
-        task = client.get_task(task_id.strip())
+        task = (client.get_task(task_id.strip(), include_subtasks=True) if include_subtasks
+                else client.get_task(task_id.strip()))
     except ClickUpError as exc:
         raise ProposalError(f"could not read task {task_id}: HTTP {exc.status or 'error'}") from None
     if str((task.get("list") or {}).get("id")) not in cfg.list_ids:
@@ -385,6 +387,18 @@ def validate_proposal(cfg: PMConfig, conn, client: ClickUpClient, kind: str, pay
         return ({"task_id": str(task["id"]), "text": text},
                 f"Add a comment to task \"{task['name']}\": \"{text}\"")
 
+    if kind == "clickup_delete_task":
+        task = _scoped_task(client, cfg, payload.get("task_id"), include_subtasks=True)
+        assignees = [str(a.get("username") or a.get("email") or a.get("id")) for a in task.get("assignees") or []]
+        status = str((task.get("status") or {}).get("status") or "unknown") if isinstance(task.get("status"), dict) \
+            else str(task.get("status") or "unknown")
+        subtasks = len(task.get("subtasks") or [])
+        summary = (f"Delete task \"{task['name']}\" (list \"{list_names.get(str(task['list']['id']), task['list']['id'])}\", "
+                   f"status \"{status}\", {'assigned to ' + ', '.join(assignees) if assignees else 'unassigned'})")
+        if subtasks:
+            summary += f" and its {subtasks} subtask{'s' if subtasks != 1 else ''}"
+        return {"task_id": str(task["id"])}, summary + "."
+
     if kind in ("meeting_create", "meeting_update"):
         out = {}
         if kind == "meeting_update":
@@ -459,10 +473,29 @@ def idempotency_key(kind: str, payload: dict, requested_by: str, today: date) ->
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
+def self_approver_for(cfg: PMConfig, conn, kind: str, requester_whatsapp_ids: list[str],
+                      aliases_of: Optional[Callable[[str], set[str]]] = None) -> Optional[dict]:
+    """The requester's pm.people row when this change needs no approver: only a delete, and only
+    for someone listed in approvals.self_approved_delete_clickup_user_ids. The requester comes
+    from the gateway's verified WhatsApp sender (never from the LLM); no sender, no exemption."""
+    if kind != "clickup_delete_task" or not cfg.self_approved_delete_clickup_user_ids or not requester_whatsapp_ids:
+        return None
+    person = (person_for_whatsapp_sender(conn, requester_whatsapp_ids) if aliases_of is None
+              else person_for_whatsapp_sender(conn, requester_whatsapp_ids, aliases_of))
+    if person and str(person.get("clickup_user_id") or "") in cfg.self_approved_delete_clickup_user_ids:
+        return person
+    return None
+
+
 async def propose_change(cfg: PMConfig, conn, client: ClickUpClient, *, kind: str, payload: Any,
                          reason: Optional[str], requested_by: str, now: datetime,
-                         sender: Sender = send_whatsapp) -> dict:
+                         sender: Sender = send_whatsapp, requester_whatsapp_ids: Optional[list[str]] = None,
+                         aliases_of: Optional[Callable[[str], set[str]]] = None) -> dict:
     normalised, summary = validate_proposal(cfg, conn, client, kind, payload)
+    self_approver = self_approver_for(cfg, conn, kind, list(requester_whatsapp_ids or []), aliases_of)
+    if self_approver is not None:
+        return _run_self_approved(cfg, conn, client, kind=kind, payload=normalised, summary=summary,
+                                  reason=reason, requested_by=requested_by, person=self_approver, now=now)
     approver = effective_approver(conn, cfg)
     reason = (reason or "").strip()[:500] or None
     approval_id, created = store.create_approval(
@@ -479,6 +512,29 @@ async def propose_change(cfg: PMConfig, conn, client: ClickUpClient, *, kind: st
                            sender=sender, approval_id=approval_id)
     return {"approval_id": approval_id, "status": "pending", "summary": summary,
             "approver": approver["display_name"], "request_message": result.status}
+
+
+def _run_self_approved(cfg: PMConfig, conn, client: ClickUpClient, *, kind: str, payload: dict, summary: str,
+                       reason: Optional[str], requested_by: str, person: dict, now: datetime) -> dict:
+    """Records the change as an approval the requester approved themself (same table, same audit
+    trail, same exactly-once claim) and runs it now. No message goes to the approver."""
+    reason = (reason or "").strip()[:500] or None
+    approval_id, created = store.create_approval(
+        conn, kind=kind, payload=payload, summary=summary, reason=reason, requested_by=requested_by,
+        approver_person_id=person["id"],
+        idempotency_key=idempotency_key(kind, payload, requested_by, now.astimezone(cfg.tz).date()))
+    if created:
+        store.decide_approval(conn, approval_id, person["id"], "approved",
+                              f"{person['display_name']} (self-approved delete, pm.yaml)")
+    approval = store.claim_for_execution(conn, approval_id)
+    if approval is None:
+        existing = store.get_approval(conn, approval_id)
+        return {"approval_id": approval_id, "status": existing["status"], "summary": existing["summary"],
+                "note": "The same change was already requested today; it was not run again."}
+    ok, detail = execute_one(cfg, conn, client, approval)
+    clear_task_cache()
+    return {"approval_id": approval_id, "status": "executed" if ok else "failed", "summary": summary,
+            "self_approved_by": person["display_name"], **({"error": detail} if not ok else {})}
 
 
 # ── approvals: reply parsing (deterministic) ─────────────────────────────────
@@ -592,6 +648,9 @@ def execute_one(cfg: PMConfig, conn, client: ClickUpClient, approval: dict) -> t
             resp = client.update_task(payload["task_id"], _clickup_body_update(payload, cfg))
         elif kind == "clickup_comment":
             resp = client.create_comment(payload["task_id"], payload["text"])
+        elif kind == "clickup_delete_task":
+            client.delete_task(payload["task_id"])
+            resp = {"id": payload["task_id"]}
         else:
             raise ValueError(f"unknown kind {kind}")
     except ClickUpError as exc:

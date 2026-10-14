@@ -1,4 +1,4 @@
-"""ProjectManager plugin wiring: registration, the reply hook's fail-open
+"""Captain plugin wiring: registration, the reply hook's fail-open
 behaviour, and the read tools' output (fixture data, no network)."""
 
 from __future__ import annotations

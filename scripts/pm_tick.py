@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ProjectManager scheduled duties — a Hermes no-agent cron script (no LLM turn
+"""Captain scheduled duties — a Hermes no-agent cron script (no LLM turn
 for scheduling; the only model call is the optional weekly-brief note).
 
 Every run executes ``python -m plugins.project_manager.jobs tick``:

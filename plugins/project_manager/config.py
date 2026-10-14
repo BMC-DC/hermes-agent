@@ -1,5 +1,5 @@
 """Loads and validates ``pm.yaml`` — the single source of every ClickUp id,
-account id, tag and schedule the ProjectManager plugin uses (PM_PLAN §4.1).
+account id, tag and schedule the Captain plugin uses (PM_PLAN §4.1).
 
 Location: ``<root hermes home>/pm/pm.yaml`` (``/opt/data/pm/pm.yaml`` in the
 container), overridable with ``PM_CONFIG_PATH`` for tests and dry runs.
@@ -69,6 +69,8 @@ class PMConfig:
     test_recipient_clickup_user_id: str
     approver_clickup_user_id: str
     approval_ttl_hours: int
+    # People whose OWN delete requests run without the approver (Kusal, 2026-10-15). Optional.
+    self_approved_delete_clickup_user_ids: frozenset[str]
     max_rows_per_section: int
     webapp_base_url: str
 
@@ -236,6 +238,12 @@ def parse_config(raw: Any, path: Path) -> PMConfig:
     approvals = _req(raw, "approvals", "")
     approver = _id(_req(approvals, "approver_clickup_user_id", "approvals"), "approvals.approver_clickup_user_id")
     ttl = _int(_req(approvals, "ttl_hours", "approvals"), "approvals.ttl_hours", 1, 24 * 14)
+    self_deleters_raw = approvals.get("self_approved_delete_clickup_user_ids", [])
+    if not isinstance(self_deleters_raw, list):
+        raise PMConfigError("pm.yaml: approvals.self_approved_delete_clickup_user_ids must be a list")
+    self_deleters = frozenset(_id(u, "approvals.self_approved_delete_clickup_user_ids[]") for u in self_deleters_raw)
+    if admin in self_deleters:
+        raise PMConfigError("pm.yaml: the shared admin account cannot be in self_approved_delete_clickup_user_ids")
 
     return PMConfig(
         path=path, workspace_id=workspace_id, spaces=spaces, lists=lists,
@@ -244,7 +252,7 @@ def parse_config(raw: Any, path: Path) -> PMConfig:
         meeting_reminder_at=reminder_at, meeting_reminder_catch_up_hours=reminder_catch_up,
         agent_note_enabled=agent_note, whatsapp_mode=mode,
         test_recipient_clickup_user_id=test_recipient, approver_clickup_user_id=approver,
-        approval_ttl_hours=ttl, max_rows_per_section=max_rows, webapp_base_url=webapp,
+        approval_ttl_hours=ttl, self_approved_delete_clickup_user_ids=self_deleters, max_rows_per_section=max_rows, webapp_base_url=webapp,
     )
 
 

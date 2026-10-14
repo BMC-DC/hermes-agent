@@ -1,4 +1,4 @@
-"""Deterministic report rules for the ProjectManager plugin (PM_PLAN §5).
+"""Deterministic report rules for the Captain plugin (PM_PLAN §5).
 
 Pure functions only: no I/O, no clock reads (``now`` is always passed in), no
 LLM. Every classification uses ClickUp's ``status.type`` — never the status

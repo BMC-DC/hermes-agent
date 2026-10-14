@@ -121,7 +121,7 @@ def render_weekly_brief(report: Report, *, tz: ZoneInfo, admin_account_id: str,
                         max_rows: Optional[int] = None, full_report_url: Optional[str] = None,
                         agent_note: Optional[str] = None, out_of_scope_note: bool = True) -> str:
     days = report.upcoming_days
-    lines: list[str] = ["*Weekly project brief*"]
+    lines: list[str] = ["*Captain · Weekly project brief*"]
     if report.window_start is not None and report.window_end is not None:
         # window_end is exclusive (local midnight); the last day shown is the day before it.
         last_day = report.window_end.astimezone(tz) - timedelta(days=1)
@@ -154,7 +154,7 @@ def render_weekly_brief(report: Report, *, tz: ZoneInfo, admin_account_id: str,
         lines.append("Note: " + "; ".join(notes) + ".")
 
     if agent_note:
-        lines += ["", "*Agent note*", agent_note.strip()]
+        lines += ["", "*Captain's note*", agent_note.strip()]
     return "\n".join(lines)
 
 
@@ -184,7 +184,7 @@ def report_payload(report: Report) -> dict[str, Any]:
 def render_meeting_reminder(meeting: dict, rows: Optional[Sequence[Row]], *, tz: ZoneInfo, admin_account_id: str,
                             topic_label: Optional[str], max_rows: Optional[int]) -> str:
     starts = meeting["starts_at"]
-    lines = [f"*Meeting reminder: {meeting['title']}*",
+    lines = [f"*Captain · Meeting reminder: {meeting['title']}*",
              f"When: {fmt_dt(starts, tz)} ({tz.key} time)"]
     if meeting.get("duration_minutes"):
         lines.append(f"Length: {meeting['duration_minutes']} minutes")
@@ -203,7 +203,7 @@ def render_meeting_reminder(meeting: dict, rows: Optional[Sequence[Row]], *, tz:
 
 
 def render_approval_request(approval_id: int, summary: str, reason: Optional[str], requested_by: str) -> str:
-    lines = [f"*Approval needed (#{approval_id})*", summary.strip()]
+    lines = [f"*Captain · Approval needed (#{approval_id})*", summary.strip()]
     if reason:
         lines.append(f"Why: {reason.strip()}")
     lines.append(f"Asked by: {requested_by}")

@@ -1,4 +1,4 @@
-"""ProjectManager (Vidu-PM) plugin — Phase 1 of extra/plans/pm/PM_PLAN.md.
+"""Captain (project manager) plugin — Phase 1 of extra/plans/pm/PM_PLAN.md.
 
 Registers:
 - read-only tools (toolset ``project_manager``) and the change-proposal tools

@@ -1,4 +1,4 @@
-"""ProjectManager units that need neither DB nor network: pm.yaml validation,
+"""Captain units that need neither DB nor network: pm.yaml validation,
 the ClickUp client's pagination/retry rules, schedule gates, reply parsing,
 the agent-note guard, and the weekly-brief snapshot."""
 
@@ -47,6 +47,13 @@ def test_template_and_fixture_config_parse_and_agree():
     assert cfg.weekly_brief.weekday == 0 and cfg.weekly_brief.at.hour == 9
     assert cfg.exclude_tags == {"stylus", "event-post-pipeline"}
     assert cfg.admin_account_id == "210143482"
+    assert fixture_cfg.self_approved_delete_clickup_user_ids == frozenset()     # optional, default none
+
+
+def test_self_approved_deleters_parse():
+    raw = copy.deepcopy(base_raw())
+    raw["approvals"]["self_approved_delete_clickup_user_ids"] = ["270803640", 270803640]
+    assert parse(raw).self_approved_delete_clickup_user_ids == frozenset({"270803640"})
 
 
 @pytest.mark.parametrize("mutate,match", [
@@ -64,6 +71,9 @@ def test_template_and_fixture_config_parse_and_agree():
     (lambda r: r["reports"].update(webapp_base_url="http://x"), "https"),
     (lambda r: r["whatsapp"].update(mode="live"), "whatsapp.mode"),
     (lambda r: r["approvals"].pop("approver_clickup_user_id"), "approver_clickup_user_id"),
+    (lambda r: r["approvals"].update(self_approved_delete_clickup_user_ids="270803640"), "must be a list"),
+    (lambda r: r["approvals"].update(self_approved_delete_clickup_user_ids=["kusal"]), "numeric ClickUp id"),
+    (lambda r: r["approvals"].update(self_approved_delete_clickup_user_ids=["210143482"]), "shared admin"),
     (lambda r: r["clickup"]["tags"].update(meeting_topics={"AI": ["ai"]}), "meeting topic key"),
     (lambda r: r["clickup"]["tags"].update(meeting_topics={"ai": []}), "has no tags"),
 ])
@@ -193,6 +203,37 @@ def test_write_4xx_is_definite_failure():
     assert not exc.value.ambiguous and "Status not found" in str(exc.value)
 
 
+def test_delete_task_accepts_204_and_sends_delete():
+    empty = FakeResp(204, None)
+    empty._body = b""                                    # ClickUp's 204 has no body
+    c, opener, _ = client([empty])
+    assert c.delete_task("abc") is None
+    assert opener.requests[0].get_method() == "DELETE" and opener.requests[0].full_url.endswith("/task/abc")
+    assert opener.requests[0].data is None
+
+
+def test_delete_task_5xx_is_ambiguous_and_not_retried():
+    c, opener, _ = client([http_error(502)])
+    with pytest.raises(ClickUpError) as exc:
+        c.delete_task("abc")
+    assert exc.value.ambiguous and len(opener.requests) == 1
+
+
+def test_delete_task_404_is_definite_failure():
+    c, _, _ = client([http_error(404, {"err": "Task not found"})])
+    with pytest.raises(ClickUpError) as exc:
+        c.delete_task("abc")
+    assert not exc.value.ambiguous and exc.value.status == 404
+
+
+def test_get_task_can_ask_for_subtasks():
+    c, opener, _ = client([FakeResp(200, {"id": "t"}), FakeResp(200, {"id": "t"})])
+    c.get_task("t")
+    c.get_task("t", include_subtasks=True)
+    assert "include_subtasks" not in opener.requests[0].full_url
+    assert opener.requests[1].full_url.endswith("/task/t?include_subtasks=true")
+
+
 def test_token_never_appears_in_repr_or_errors():
     c, _, _ = client([http_error(401, {"err": "Token invalid"})])
     assert "pk_secret_token" not in repr(c)
@@ -298,8 +339,8 @@ def test_weekly_brief_snapshot(cfg):
     if not golden.exists():  # first run writes it; review the diff, then commit it
         golden.write_text(text)
     assert text == golden.read_text()
-    assert text.splitlines()[0] == "*Weekly project brief*"
-    assert text.rstrip().endswith("*Agent note*\nA note.")
+    assert text.splitlines()[0] == "*Captain · Weekly project brief*"
+    assert text.rstrip().endswith("*Captain's note*\nA note.")
 
 
 def test_tldr_is_at_most_three_lines(cfg):

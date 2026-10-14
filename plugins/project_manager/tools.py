@@ -1,4 +1,4 @@
-"""Agent tools for Vidu-PM (the ``captain`` profile) and, read-only, Vidu.
+"""Agent tools for Captain (the ``captain`` profile) and, read-only, Vidu.
 
 Two toolsets (PM_PLAN §5.5, §7; routing decided by Kusal 2026-10-14):
 
@@ -305,6 +305,9 @@ PM_PROPOSE_CHANGE_SCHEMA = {
         "- clickup_update_task: task_id, and any of name, description, status (a status name of that list), "
         "due_date (YYYY-MM-DD), add_assignee_clickup_user_ids, remove_assignee_clickup_user_ids\n"
         "- clickup_comment: task_id, text\n"
+        "- clickup_delete_task: task_id. Deletes the task (and its subtasks) from ClickUp. Before proposing, "
+        "show the person the exact task name and get a clear yes in the chat; never delete in bulk or on a guess. "
+        "If the result says status 'executed', it is already deleted (some people may delete without Yohan)\n"
         "- meeting_create: title, starts_at_local (YYYY-MM-DD HH:MM, New York time), duration_minutes?, "
         "topic_key?, notes?\n"
         "- meeting_update: meeting_id, and any of the meeting_create fields\n"
@@ -316,6 +319,18 @@ PM_PROPOSE_CHANGE_SCHEMA = {
         "reason": {"type": "string", "description": "One short sentence: why, in the requester's words."},
     }, "required": ["kind", "payload"]},
 }
+
+
+def _requester_whatsapp_ids() -> list[str]:
+    """The verified WhatsApp sender of this turn (gateway session, never the LLM); [] otherwise."""
+    try:
+        from gateway.session_context import get_session_env
+        platform = (get_session_env("HERMES_SESSION_PLATFORM") or get_session_env("HERMES_SESSION_SOURCE") or "")
+        if platform.lower() != "whatsapp":
+            return []
+        return [i for i in (get_session_env("HERMES_SESSION_USER_ID"),) if i]
+    except Exception:
+        return []
 
 
 def _requested_by() -> str:
@@ -342,7 +357,8 @@ async def pm_propose_change(args: dict, **_: Any) -> str:
         with store.connection() as conn:
             result = await service.propose_change(
                 cfg, conn, client, kind=str(args.get("kind") or ""), payload=args.get("payload"),
-                reason=args.get("reason"), requested_by=_requested_by(), now=service.utcnow())
+                reason=args.get("reason"), requested_by=_requested_by(), now=service.utcnow(),
+                requester_whatsapp_ids=_requester_whatsapp_ids())
         return tool_result(result)
     except service.ProposalError as exc:
         return tool_error(f"Not proposed: {exc}")

@@ -1,8 +1,8 @@
 name: project_manager
-label: Project Manager
+label: Captain
 version: 0.1.0
 description: >
-  ProjectManager (Vidu-PM) Phase 1: deterministic ClickUp reports, the weekly
+  Captain (project manager) Phase 1: deterministic ClickUp reports, the weekly
   PM brief, day-before meeting reminders, read-only PM tools for agents, and an
   approval flow (approver replies YES/NO on WhatsApp) for ClickUp and meeting
   changes. Design: extra/plans/pm/PM_PLAN.md. Config: /opt/data/pm/pm.yaml.

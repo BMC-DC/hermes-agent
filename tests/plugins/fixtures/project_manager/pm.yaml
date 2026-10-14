@@ -1,4 +1,4 @@
-# ProjectManager (PM) config — the ONE place every ClickUp id, account id, tag and schedule
+# Captain (PM) config — the ONE place every ClickUp id, account id, tag and schedule
 # lives (extra/plans/pm/PM_PLAN.md §4.1). Live copy: /opt/data/pm/pm.yaml in the `hermes`
 # container (= /home/bmc/.hermes/pm/pm.yaml on the VPS). Editing the live copy is a
 # human-gated production config change (PM_PLAN §0.7).

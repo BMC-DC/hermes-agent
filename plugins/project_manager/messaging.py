@@ -1,4 +1,4 @@
-"""WhatsApp delivery for the ProjectManager plugin.
+"""WhatsApp delivery for the Captain plugin.
 
 Sends go straight to the WhatsApp bridge (live gateway adapter when running
 inside the gateway, the platform's standalone sender otherwise — same two
@@ -59,6 +59,38 @@ def management_group_chat_id(root_config: Optional[dict] = None) -> str:
     if not chat_id.endswith("@g.us"):
         raise DeliveryError("platforms.whatsapp.home_channel.chat_id is not a WhatsApp group JID")
     return chat_id
+
+
+def whatsapp_aliases(identifier: str) -> set[str]:
+    """Phone/LID aliases of a WhatsApp identifier, read from the ROOT profile's bridge session.
+
+    The bridge writes its ``lid-mapping-*.json`` files only under the root home. A DM routed to
+    another profile (captain) runs with that profile's home, where the gateway's own lookup finds
+    no mapping and returns just the LID (seen live 2026-10-14), so PM always resolves here."""
+    from gateway.whatsapp_identity import expand_whatsapp_aliases
+    from hermes_constants import get_default_hermes_root, reset_hermes_home_override, set_hermes_home_override
+
+    token = set_hermes_home_override(get_default_hermes_root())
+    try:
+        return expand_whatsapp_aliases(identifier)
+    finally:
+        reset_hermes_home_override(token)
+
+
+def person_for_whatsapp_sender(conn, identifiers: list[str],
+                               aliases_of: Callable[[str], set[str]] = whatsapp_aliases) -> Optional[dict]:
+    """The active pm.people row whose WhatsApp number is an alias of the sender, else None."""
+    sender: set[str] = set()
+    for ident in identifiers:
+        if ident:
+            sender |= aliases_of(ident)
+    if not sender:
+        return None
+    for person in store.active_people(conn):
+        number = person.get("whatsapp_number")
+        if number and aliases_of(str(number)) & sender:
+            return person
+    return None
 
 
 def dm_chat_id(person: Optional[dict], who: str) -> str:

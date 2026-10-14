@@ -1,4 +1,4 @@
-"""ProjectManager integration tests against a real Postgres (PM_PLAN §10).
+"""Captain integration tests against a real Postgres (PM_PLAN §10).
 
 Run against a THROWAWAY database only:
     PM_TEST_ADMIN_DSN=postgresql://postgres:...@127.0.0.1:55432/spp \
@@ -51,10 +51,12 @@ def schema():
         pytest.skip(f"migration not found at {MIGRATION}")
     conn = psycopg2.connect(ADMIN_DSN)
     conn.autocommit = True
+    migrations = sorted(MIGRATION.parent.glob("[0-9][0-9][0-9][0-9]_*.sql"))   # 0001, 0002, ...
     with conn.cursor() as cur:
         cur.execute("DROP SCHEMA IF EXISTS pm CASCADE")
         for _ in range(2):           # idempotent: second run must be a no-op
-            cur.execute(MIGRATION.read_text())
+            for path in migrations:
+                cur.execute(path.read_text())
     conn.close()
 
 
@@ -95,10 +97,15 @@ class FakeClickUp:
     def get_team_tasks(self, team_id):
         return self.tasks
 
-    def get_task(self, task_id):
+    def get_task(self, task_id, include_subtasks=False):
+        self.subtask_reads = getattr(self, "subtask_reads", 0) + bool(include_subtasks)
         if task_id == "OUTSIDE":
             return {"id": task_id, "name": "Elsewhere", "list": {"id": "999"}}
-        return {"id": task_id, "name": f"Task {task_id}", "list": {"id": LIST_SEO}}
+        task = {"id": task_id, "name": f"Task {task_id}", "list": {"id": LIST_SEO},
+                "status": {"status": "to do", "type": "open"}, "assignees": [{"id": 94495142, "username": "Dileepa"}]}
+        if include_subtasks and task_id == "PARENT":
+            task["subtasks"] = [{"id": "s1"}, {"id": "s2"}]
+        return task
 
     def get_list(self, list_id):
         return {"statuses": [{"status": "to do", "type": "open"}, {"status": "in progress", "type": "custom"},
@@ -118,6 +125,10 @@ class FakeClickUp:
 
     def create_comment(self, task_id, text):
         return self._write("comment", task_id, text)
+
+    def delete_task(self, task_id):
+        self._write("delete", task_id)
+        return None
 
 
 class FakeSender:
@@ -319,7 +330,8 @@ def test_meeting_change_via_approval_applies_once_and_is_audited(cfg, conn):
 def test_pending_approvals_expire(cfg, conn):
     client, sender = FakeClickUp(), FakeSender()
     aid = propose(cfg, conn, client, sender)["approval_id"]
-    later = NOW + timedelta(hours=cfg.approval_ttl_hours + 1)
+    # created_at is the DB's real now(), so expiry is measured from the real clock, not NOW.
+    later = datetime.now(timezone.utc) + timedelta(hours=cfg.approval_ttl_hours + 1)
     outcomes = run(service.run_executor(cfg, conn, now=later, dry_run=False, client=client, sender=sender))
     assert outcomes[0].action == "expired" and store.get_approval(conn, aid)["status"] == "expired"
     out = service.handle_reply(cfg, conn, sender_aliases={YOHAN_NO}, text=f"yes {aid}", aliases_of=aliases)
@@ -429,7 +441,7 @@ def test_weekly_brief_agent_note_is_appended_last(cfg, conn):
     sender = FakeSender()
     run(service.run_weekly_brief(cfg, conn, now=MONDAY_9, dry_run=False, client=FakeClickUp(fixture_tasks()),
                                  sender=sender, llm=lambda m: "Most overdue work sits with one person."))
-    assert sender.sent[0][1].rstrip().endswith("*Agent note*\nMost overdue work sits with one person.")
+    assert sender.sent[0][1].rstrip().endswith("*Captain's note*\nMost overdue work sits with one person.")
     assert store.latest_report(conn, "weekly_brief")["agent_note"] == "Most overdue work sits with one person."
 
 
@@ -437,3 +449,84 @@ def test_stuck_claims_are_reported(conn):
     mid = store.claim_send(conn, dedupe_key="k1", purpose="test", chat_id="x", body="b")
     assert store.claim_send(conn, dedupe_key="k1", purpose="test", chat_id="x", body="b") is None
     assert [r["id"] for r in store.stuck_sends(conn, datetime.now(timezone.utc) + timedelta(seconds=1))] == [mid]
+
+
+# ── deletes (Kusal, 2026-10-15) ──────────────────────────────────────────────
+def kusal_aliases(x):
+    """Kusal's DM arrives as a LID; the root bridge session maps it to his number."""
+    x = x.split("@")[0].lstrip("+")
+    return {x, KUSAL_NO} if x in ("777000111", KUSAL_NO) else {x}
+
+
+def self_cfg(cfg):
+    return dataclasses.replace(cfg, self_approved_delete_clickup_user_ids=frozenset({KUSAL}))
+
+
+def propose_delete(cfg, conn, client, sender, task_id="t7", ids=None, kind="clickup_delete_task", payload=None):
+    return run(service.propose_change(
+        cfg, conn, client, kind=kind, payload=payload or {"task_id": task_id}, reason="outdated",
+        requested_by="Kusal (whatsapp:777000111)", now=NOW, sender=sender,
+        requester_whatsapp_ids=ids if ids is not None else ["777000111@lid"], aliases_of=kusal_aliases))
+
+
+def test_delete_needs_yohan_by_default_and_runs_once(cfg, conn):
+    client, sender = FakeClickUp(), FakeSender()
+    result = propose_delete(cfg, conn, client, sender)
+    assert result["status"] == "pending"
+    assert result["summary"] == ('Delete task "Task t7" (list "SEO / Tasks", status "to do", assigned to Dileepa).')
+    assert client.writes == [] and sender.sent[0][0] == f"{YOHAN_NO}@s.whatsapp.net"
+    service.handle_reply(cfg, conn, sender_aliases={YOHAN_NO}, text=f"yes {result['approval_id']}", aliases_of=aliases)
+    run(service.run_executor(cfg, conn, now=NOW, dry_run=False, client=client, sender=sender))
+    run(service.run_executor(cfg, conn, now=NOW, dry_run=False, client=client, sender=sender))
+    assert client.writes == [("delete", "t7")]
+    assert store.get_approval(conn, result["approval_id"])["status"] == "executed"
+
+
+def test_delete_summary_counts_subtasks(cfg, conn):
+    result = propose_delete(cfg, conn, FakeClickUp(), FakeSender(), task_id="PARENT")
+    assert result["summary"].endswith("and its 2 subtasks.")
+
+
+def test_self_approved_delete_runs_now_without_messaging_yohan(cfg, conn):
+    client, sender = FakeClickUp(), FakeSender()
+    result = propose_delete(self_cfg(cfg), conn, client, sender)
+    assert result["status"] == "executed" and result["self_approved_by"] == "Kusal Darshana"
+    assert client.writes == [("delete", "t7")] and sender.sent == []
+    row = store.get_approval(conn, result["approval_id"])
+    assert row["status"] == "executed" and "self-approved" in row["decided_by"]
+    assert [a[1] for a in audit(conn, "approval")] == ["propose", "approved", "executed"]
+    again = propose_delete(self_cfg(cfg), conn, client, sender)          # same request, same day
+    assert again["approval_id"] == result["approval_id"] and "not run again" in again["note"]
+    assert client.writes == [("delete", "t7")]
+    run(service.run_executor(cfg, conn, now=NOW, dry_run=False, client=client, sender=sender))
+    assert client.writes == [("delete", "t7")]                          # the executor never re-runs it
+
+
+@pytest.mark.parametrize("ids,kind,payload", [
+    ([], "clickup_delete_task", None),                                   # no verified sender (CLI, cron)
+    (["19999999999@s.whatsapp.net"], "clickup_delete_task", None),       # someone not listed
+    (["777000111@lid"], "clickup_comment", {"task_id": "t7", "text": "x"}),   # listed, but not a delete
+])
+def test_everyone_else_still_needs_yohan(cfg, conn, ids, kind, payload):
+    client, sender = FakeClickUp(), FakeSender()
+    result = propose_delete(self_cfg(cfg), conn, client, sender, ids=ids, kind=kind, payload=payload)
+    assert result["status"] == "pending" and client.writes == [] and len(sender.sent) == 1
+
+
+def test_self_approved_delete_failure_is_reported_and_recorded(cfg, conn):
+    client = FakeClickUp(fail_with=ClickUpError("DELETE -> HTTP 404 Task not found", status=404))
+    result = propose_delete(self_cfg(cfg), conn, client, FakeSender())
+    assert result["status"] == "failed" and "404" in result["error"]
+    assert store.get_approval(conn, result["approval_id"])["status"] == "failed"
+
+
+def test_delete_outside_managed_lists_is_refused(cfg, conn):
+    with pytest.raises(service.ProposalError, match="not in a list PM manages"):
+        propose_delete(self_cfg(cfg), conn, FakeClickUp(), FakeSender(), task_id="OUTSIDE")
+
+
+def test_db_rejects_unknown_kind(conn):
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        with conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO pm.approvals (kind, payload, summary, requested_by, approver_person_id, "
+                        "idempotency_key) VALUES ('clickup_delete_space', '{}', 's', 'r', 1, 'k')")
