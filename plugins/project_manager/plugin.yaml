@@ -1,0 +1,22 @@
+name: project_manager
+label: Project Manager
+version: 0.1.0
+description: >
+  ProjectManager (Vidu-PM) Phase 1: deterministic ClickUp reports, the weekly
+  PM brief, day-before meeting reminders, read-only PM tools for agents, and an
+  approval flow (approver replies YES/NO on WhatsApp) for ClickUp and meeting
+  changes. Design: extra/plans/pm/PM_PLAN.md. Config: /opt/data/pm/pm.yaml.
+  Data: schema `pm` in spp-postgres.
+author: BMC-DC
+# standalone: the pre_gateway_dispatch hook and the tools must register in every
+# process (gateway, cron script, worker), same reasoning as event_post_pipeline.
+kind: standalone
+optional_env:
+  - name: CLICKUP_API_TOKEN
+    description: "ClickUp personal API token of the shared admin account (Doppler vidu/prd). Author of every PM write."
+    prompt: "ClickUp API token"
+    password: true
+  - name: SPP_DATABASE_URL
+    description: "Postgres DSN for spp-postgres (role spp_app); the pm schema lives there."
+    prompt: "spp-postgres DSN"
+    password: true

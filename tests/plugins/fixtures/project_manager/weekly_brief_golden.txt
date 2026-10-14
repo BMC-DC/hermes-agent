@@ -1,0 +1,200 @@
+*Weekly project brief*
+Period: Mon 12 Oct 2026 to Sun 18 Oct 2026 (America/New_York time)
+Generated: Mon 19 Oct 2026 09:00 EDT
+
+*TLDR*
+- 0 completed in the period, 34 in progress, 13 not started.
+- 31 overdue (30 by more than 30 days); 0 due in the next 14 days.
+- Needs attention: 4 tasks on the shared admin account, 16 unassigned, 16 with no due date.
+
+*Counts*
+Completed in the period: 0
+In progress: 34
+Not started: 13
+Overdue, total: 31
+  up to 7 days: 0
+  8 to 30 days: 1
+  more than 30 days: 30
+Due in the next 14 days: 0
+No due date: 16
+Unassigned: 16
+Assigned to the shared admin account: 4
+
+*Overdue: more than 30 days (30)*
+1. Frontend Component Library | unassigned | due Fri 15 May 2026 13:00 | 157 days overdue | in review
+   https://app.clickup.com/t/86b9xpyx8
+2. System Architecture Design | unassigned | due Wed 20 May 2026 13:00 | 152 days overdue | in progress
+   https://app.clickup.com/t/86b9xpyxe
+3. Client Beta Testing Phase | unassigned | due Wed 10 Jun 2026 13:00 | 131 days overdue | to do
+   https://app.clickup.com/t/86b9xpyxc
+4. Akhil and Banthe to work on email templates | Amitha khema | due Sat 13 Jun 2026 | 128 days overdue | in progress
+   https://app.clickup.com/t/86baed1m2
+5. Discuss Vidu integration with Amila | Dileepa | due Sat 13 Jun 2026 | 128 days overdue | in progress
+   https://app.clickup.com/t/86baed1kz
+6. Prasad and Dileepa figure out CRM System | Dileepa | due Sat 13 Jun 2026 | 128 days overdue | in progress
+   https://app.clickup.com/t/86baed1m7
+7. Review the website interface | Amila Upathissa | due Sat 13 Jun 2026 | 128 days overdue | in progress
+   https://app.clickup.com/t/86baed1zv
+8. Daily recommendations | Amila Upathissa | due Wed 17 Jun 2026 | 124 days overdue | in progress
+   https://app.clickup.com/t/86baed1rc
+9. Use common template to set up task creations | Amila Upathissa | due Wed 17 Jun 2026 | 124 days overdue | in progress
+   https://app.clickup.com/t/86baed1qx
+10. Create a design system for web sites | Amila Upathissa | due Tue 07 Jul 2026 | 104 days overdue | in progress
+   https://app.clickup.com/t/86bajxech
+11. Create New Ad Campaign for June | Dileepa | due Tue 07 Jul 2026 | 104 days overdue | in progress
+   https://app.clickup.com/t/86baed1n2
+12. Go through Keyword Planner and potentially automate fetching from that | Dileepa | due Tue 07 Jul 2026 | 104 days overdue | in progress
+   https://app.clickup.com/t/86baed1pm
+13. Talk with Amilla about automating Ad Creation with Vidu | Dileepa | due Tue 07 Jul 2026 | 104 days overdue | in progress
+   https://app.clickup.com/t/86baed1pt
+14. Troubleshoot Conversion Tracking with Google Ads | Dileepa | due Tue 07 Jul 2026 | 104 days overdue | in progress
+   https://app.clickup.com/t/86baed1mm
+15. Vidu reads from AWS and based on prompt gives suggestions | Dileepa | due Tue 07 Jul 2026 | 104 days overdue | in progress
+   https://app.clickup.com/t/86baed1pr
++15 more (full report: https://spp.buddhameditationdc.org/pm/reports/1)
+
+*Overdue: 8 to 30 days (1)*
+1. Documente all the process for future use | Kusal Darshana | due Tue 29 Sep 2026 | 20 days overdue | in progress
+   https://app.clickup.com/t/86bbx1g2v
+
+*In progress (34)*
+1. Frontend Component Library | unassigned | due Fri 15 May 2026 13:00 | 157 days overdue | in review
+   https://app.clickup.com/t/86b9xpyx8
+2. System Architecture Design | unassigned | due Wed 20 May 2026 13:00 | 152 days overdue | in progress
+   https://app.clickup.com/t/86b9xpyxe
+3. Akhil and Banthe to work on email templates | Amitha khema | due Sat 13 Jun 2026 | 128 days overdue | in progress
+   https://app.clickup.com/t/86baed1m2
+4. Discuss Vidu integration with Amila | Dileepa | due Sat 13 Jun 2026 | 128 days overdue | in progress
+   https://app.clickup.com/t/86baed1kz
+5. Prasad and Dileepa figure out CRM System | Dileepa | due Sat 13 Jun 2026 | 128 days overdue | in progress
+   https://app.clickup.com/t/86baed1m7
+6. Review the website interface | Amila Upathissa | due Sat 13 Jun 2026 | 128 days overdue | in progress
+   https://app.clickup.com/t/86baed1zv
+7. Daily recommendations | Amila Upathissa | due Wed 17 Jun 2026 | 124 days overdue | in progress
+   https://app.clickup.com/t/86baed1rc
+8. Use common template to set up task creations | Amila Upathissa | due Wed 17 Jun 2026 | 124 days overdue | in progress
+   https://app.clickup.com/t/86baed1qx
+9. Create a design system for web sites | Amila Upathissa | due Tue 07 Jul 2026 | 104 days overdue | in progress
+   https://app.clickup.com/t/86bajxech
+10. Create New Ad Campaign for June | Dileepa | due Tue 07 Jul 2026 | 104 days overdue | in progress
+   https://app.clickup.com/t/86baed1n2
+11. Go through Keyword Planner and potentially automate fetching from that | Dileepa | due Tue 07 Jul 2026 | 104 days overdue | in progress
+   https://app.clickup.com/t/86baed1pm
+12. Talk with Amilla about automating Ad Creation with Vidu | Dileepa | due Tue 07 Jul 2026 | 104 days overdue | in progress
+   https://app.clickup.com/t/86baed1pt
+13. Troubleshoot Conversion Tracking with Google Ads | Dileepa | due Tue 07 Jul 2026 | 104 days overdue | in progress
+   https://app.clickup.com/t/86baed1mm
+14. Vidu reads from AWS and based on prompt gives suggestions | Dileepa | due Tue 07 Jul 2026 | 104 days overdue | in progress
+   https://app.clickup.com/t/86baed1pr
+15. Task to Dileep - when can be do the test run sending email ? | Dileepa | due Wed 08 Jul 2026 | 103 days overdue | in progress
+   https://app.clickup.com/t/86baq47g1
++19 more (full report: https://spp.buddhameditationdc.org/pm/reports/1)
+
+*Not started (13)*
+1. Client Beta Testing Phase | unassigned | due Wed 10 Jun 2026 13:00 | 131 days overdue | to do
+   https://app.clickup.com/t/86b9xpyxc
+2. Day 5 — Verify Week 2 outcomes + write Week 3 handoff | Kusal Darshana | due Wed 22 Jul 2026 | 89 days overdue | to do
+   https://app.clickup.com/t/86bawtazn
+3. All tasks were completed. Finetune is in progress | unassigned | no due date | to do
+   https://app.clickup.com/t/86baed1m9
+4. API Endpoint Documentation (subtask of: System Architecture Design) | unassigned | no due date | to do
+   https://app.clickup.com/t/86b9xpyxq
+5. Create Richmond dedicated landing page or recurring program | unassigned | no due date | to do
+   https://app.clickup.com/t/86bajx2a0
+6. Finalize Beta User List (subtask of: Client Beta Testing Phase) | unassigned | no due date | to do
+   https://app.clickup.com/t/86b9xpyxh
+7. Fix Eventbrite cross-domain tracking in GA4 | unassigned | no due date | to do
+   https://app.clickup.com/t/86bajx295
+8. Fix Google Ads conversion tracking — verify form_submit & set primary conversions | unassigned | no due date | to do
+   https://app.clickup.com/t/86bamf1yc
+9. OpenAI account created by Banthe Kema - Amila to check pricing before adding payment method | Amitha Khema Thero (shared admin account) | no due date | to do
+   https://app.clickup.com/t/86baed1zg
+10. Plugin Cleanup & Catch Up | unassigned | no due date | to do
+   https://app.clickup.com/t/86baed1tv
+11. Set up Square donation click tracking in GA4 | unassigned | no due date | to do
+   https://app.clickup.com/t/86bajx299
+12. Setup Feedback Dashboard (subtask of: Client Beta Testing Phase) | unassigned | no due date | to do
+   https://app.clickup.com/t/86b9xpyxu
+13. Strengthen /meditate-with-a-monk/ page content and CTA | unassigned | no due date | to do
+   https://app.clickup.com/t/86bajx29f
+
+*No due date (not completed) (16)*
+1. Accessibility Audit (subtask of: Frontend Component Library) | unassigned | no due date | in progress
+   https://app.clickup.com/t/86b9xpyxt
+2. All tasks were completed. Finetune is in progress | unassigned | no due date | to do
+   https://app.clickup.com/t/86baed1m9
+3. API Endpoint Documentation (subtask of: System Architecture Design) | unassigned | no due date | to do
+   https://app.clickup.com/t/86b9xpyxq
+4. Could you please let us know when we can do the test run for sending the emails | Dileepa | no due date | in progress
+   https://app.clickup.com/t/86baq57wc
+5. Create Richmond dedicated landing page or recurring program | unassigned | no due date | to do
+   https://app.clickup.com/t/86bajx2a0
+6. Create task list for email and website content uploads based on Roshini's map | Amitha Khema Thero (shared admin account) | no due date | in progress
+   https://app.clickup.com/t/86baed1y4
+7. Database Schema Definition (subtask of: System Architecture Design) | unassigned | no due date | in progress
+   https://app.clickup.com/t/86b9xpyxj
+8. Finalize Beta User List (subtask of: Client Beta Testing Phase) | unassigned | no due date | to do
+   https://app.clickup.com/t/86b9xpyxh
+9. Fix Eventbrite cross-domain tracking in GA4 | unassigned | no due date | to do
+   https://app.clickup.com/t/86bajx295
+10. Fix Google Ads conversion tracking — verify form_submit & set primary conversions | unassigned | no due date | to do
+   https://app.clickup.com/t/86bamf1yc
+11. Kusal to discuss with Amila/Udara regarding ASTRO | unassigned | no due date | in progress
+   https://app.clickup.com/t/86bayjf7r
+12. OpenAI account created by Banthe Kema - Amila to check pricing before adding payment method | Amitha Khema Thero (shared admin account) | no due date | to do
+   https://app.clickup.com/t/86baed1zg
+13. Plugin Cleanup & Catch Up | unassigned | no due date | to do
+   https://app.clickup.com/t/86baed1tv
+14. Set up Square donation click tracking in GA4 | unassigned | no due date | to do
+   https://app.clickup.com/t/86bajx299
+15. Setup Feedback Dashboard (subtask of: Client Beta Testing Phase) | unassigned | no due date | to do
+   https://app.clickup.com/t/86b9xpyxu
++1 more (full report: https://spp.buddhameditationdc.org/pm/reports/1)
+
+*Unassigned (not completed) (16)*
+1. Frontend Component Library | unassigned | due Fri 15 May 2026 13:00 | 157 days overdue | in review
+   https://app.clickup.com/t/86b9xpyx8
+2. System Architecture Design | unassigned | due Wed 20 May 2026 13:00 | 152 days overdue | in progress
+   https://app.clickup.com/t/86b9xpyxe
+3. Client Beta Testing Phase | unassigned | due Wed 10 Jun 2026 13:00 | 131 days overdue | to do
+   https://app.clickup.com/t/86b9xpyxc
+4. Accessibility Audit (subtask of: Frontend Component Library) | unassigned | no due date | in progress
+   https://app.clickup.com/t/86b9xpyxt
+5. All tasks were completed. Finetune is in progress | unassigned | no due date | to do
+   https://app.clickup.com/t/86baed1m9
+6. API Endpoint Documentation (subtask of: System Architecture Design) | unassigned | no due date | to do
+   https://app.clickup.com/t/86b9xpyxq
+7. Create Richmond dedicated landing page or recurring program | unassigned | no due date | to do
+   https://app.clickup.com/t/86bajx2a0
+8. Database Schema Definition (subtask of: System Architecture Design) | unassigned | no due date | in progress
+   https://app.clickup.com/t/86b9xpyxj
+9. Finalize Beta User List (subtask of: Client Beta Testing Phase) | unassigned | no due date | to do
+   https://app.clickup.com/t/86b9xpyxh
+10. Fix Eventbrite cross-domain tracking in GA4 | unassigned | no due date | to do
+   https://app.clickup.com/t/86bajx295
+11. Fix Google Ads conversion tracking — verify form_submit & set primary conversions | unassigned | no due date | to do
+   https://app.clickup.com/t/86bamf1yc
+12. Kusal to discuss with Amila/Udara regarding ASTRO | unassigned | no due date | in progress
+   https://app.clickup.com/t/86bayjf7r
+13. Plugin Cleanup & Catch Up | unassigned | no due date | to do
+   https://app.clickup.com/t/86baed1tv
+14. Set up Square donation click tracking in GA4 | unassigned | no due date | to do
+   https://app.clickup.com/t/86bajx299
+15. Setup Feedback Dashboard (subtask of: Client Beta Testing Phase) | unassigned | no due date | to do
+   https://app.clickup.com/t/86b9xpyxu
++1 more (full report: https://spp.buddhameditationdc.org/pm/reports/1)
+
+*Assigned to the shared admin account (should be reassigned) (4)*
+1. Create Blog Post: Volunteering at Buddha Meditation Center DC | Amitha Khema Thero (shared admin account) | done 26 Jun
+   https://app.clickup.com/t/86bahfpnd
+2. Writing reviews on Yelp | Amitha Khema Thero (shared admin account) | due Wed 29 Jul 2026 | 82 days overdue | in progress
+   https://app.clickup.com/t/86baed1wz
+3. Create task list for email and website content uploads based on Roshini's map | Amitha Khema Thero (shared admin account) | no due date | in progress
+   https://app.clickup.com/t/86baed1y4
+4. OpenAI account created by Banthe Kema - Amila to check pricing before adding payment method | Amitha Khema Thero (shared admin account) | no due date | to do
+   https://app.clickup.com/t/86baed1zg
+
+Note: 2 tasks left out by the exclude tags in pm.yaml.
+
+*Agent note*
+A note.

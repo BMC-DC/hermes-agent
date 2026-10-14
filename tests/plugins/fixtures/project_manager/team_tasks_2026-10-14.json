@@ -1,0 +1,3685 @@
+{
+ "captured_at": "2026-10-14",
+ "source": "GET /v2/team/{team_id}/task include_closed subtasks, scrubbed to fields PM reads",
+ "tasks": [
+  {
+   "id": "86b9xpyx8",
+   "name": "Frontend Component Library",
+   "url": "https://app.clickup.com/t/86b9xpyx8",
+   "list": {
+    "id": "901416409229"
+   },
+   "space": {
+    "id": "90145608492"
+   },
+   "status": {
+    "status": "in review",
+    "type": "custom"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1778864400000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1778702401046",
+   "date_updated": "1778702401046"
+  },
+  {
+   "id": "86b9xpyx9",
+   "name": "Market Research & Competitor Analysis",
+   "url": "https://app.clickup.com/t/86b9xpyx9",
+   "list": {
+    "id": "901416409229"
+   },
+   "space": {
+    "id": "90145608492"
+   },
+   "status": {
+    "status": "complete",
+    "type": "done"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1777654800000",
+   "date_done": "1778702401065",
+   "date_closed": null,
+   "date_created": "1778702401065",
+   "date_updated": "1778702401065"
+  },
+  {
+   "id": "86b9xpyxc",
+   "name": "Client Beta Testing Phase",
+   "url": "https://app.clickup.com/t/86b9xpyxc",
+   "list": {
+    "id": "901416409229"
+   },
+   "space": {
+    "id": "90145608492"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1781110800000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1778702401337",
+   "date_updated": "1778702401337"
+  },
+  {
+   "id": "86b9xpyxe",
+   "name": "System Architecture Design",
+   "url": "https://app.clickup.com/t/86b9xpyxe",
+   "list": {
+    "id": "901416409229"
+   },
+   "space": {
+    "id": "90145608492"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1779296400000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1778702401442",
+   "date_updated": "1778702401442"
+  },
+  {
+   "id": "86b9xpyxg",
+   "name": "Build Button & Input Components",
+   "url": "https://app.clickup.com/t/86b9xpyxg",
+   "list": {
+    "id": "901416409229"
+   },
+   "space": {
+    "id": "90145608492"
+   },
+   "status": {
+    "status": "complete",
+    "type": "done"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": "86b9xpyx8",
+   "due_date": null,
+   "date_done": "1778702401849",
+   "date_closed": null,
+   "date_created": "1778702401848",
+   "date_updated": "1778702401848"
+  },
+  {
+   "id": "86b9xpyxj",
+   "name": "Database Schema Definition",
+   "url": "https://app.clickup.com/t/86b9xpyxj",
+   "list": {
+    "id": "901416409229"
+   },
+   "space": {
+    "id": "90145608492"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": "86b9xpyxe",
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1778702401856",
+   "date_updated": "1778702401856"
+  },
+  {
+   "id": "86b9xpyxk",
+   "name": "Identify Top 5 Competitors",
+   "url": "https://app.clickup.com/t/86b9xpyxk",
+   "list": {
+    "id": "901416409229"
+   },
+   "space": {
+    "id": "90145608492"
+   },
+   "status": {
+    "status": "complete",
+    "type": "done"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": "86b9xpyx9",
+   "due_date": null,
+   "date_done": "1778702401864",
+   "date_closed": null,
+   "date_created": "1778702401864",
+   "date_updated": "1778702401864"
+  },
+  {
+   "id": "86b9xpyxh",
+   "name": "Finalize Beta User List",
+   "url": "https://app.clickup.com/t/86b9xpyxh",
+   "list": {
+    "id": "901416409229"
+   },
+   "space": {
+    "id": "90145608492"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": "86b9xpyxc",
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1778702401875",
+   "date_updated": "1778702401875"
+  },
+  {
+   "id": "86b9xpyxq",
+   "name": "API Endpoint Documentation",
+   "url": "https://app.clickup.com/t/86b9xpyxq",
+   "list": {
+    "id": "901416409229"
+   },
+   "space": {
+    "id": "90145608492"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": "86b9xpyxe",
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1778702402119",
+   "date_updated": "1778702402119"
+  },
+  {
+   "id": "86b9xpyxr",
+   "name": "Draft Feature Gap Report",
+   "url": "https://app.clickup.com/t/86b9xpyxr",
+   "list": {
+    "id": "901416409229"
+   },
+   "space": {
+    "id": "90145608492"
+   },
+   "status": {
+    "status": "complete",
+    "type": "done"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": "86b9xpyx9",
+   "due_date": null,
+   "date_done": "1778702402213",
+   "date_closed": null,
+   "date_created": "1778702402213",
+   "date_updated": "1778702402213"
+  },
+  {
+   "id": "86b9xpyxt",
+   "name": "Accessibility Audit",
+   "url": "https://app.clickup.com/t/86b9xpyxt",
+   "list": {
+    "id": "901416409229"
+   },
+   "space": {
+    "id": "90145608492"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": "86b9xpyx8",
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1778702402219",
+   "date_updated": "1778702402219"
+  },
+  {
+   "id": "86b9xpyxu",
+   "name": "Setup Feedback Dashboard",
+   "url": "https://app.clickup.com/t/86b9xpyxu",
+   "list": {
+    "id": "901416409229"
+   },
+   "space": {
+    "id": "90145608492"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": "86b9xpyxc",
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1778702402238",
+   "date_updated": "1778702402238"
+  },
+  {
+   "id": "86baed1kz",
+   "name": "Discuss Vidu integration with Amila",
+   "url": "https://app.clickup.com/t/86baed1kz",
+   "list": {
+    "id": "901417261749"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 94495142,
+     "username": "Dileepa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1781303400000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781397878580",
+   "date_updated": "1782961081108"
+  },
+  {
+   "id": "86baed1m2",
+   "name": "Akhil and Banthe to work on email templates",
+   "url": "https://app.clickup.com/t/86baed1m2",
+   "list": {
+    "id": "901417261749"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 204231996,
+     "username": "Amitha khema"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1781303400000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781397880086",
+   "date_updated": "1782961089152"
+  },
+  {
+   "id": "86baed1m7",
+   "name": "Prasad and Dileepa figure out CRM System",
+   "url": "https://app.clickup.com/t/86baed1m7",
+   "list": {
+    "id": "901417261749"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 94495142,
+     "username": "Dileepa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1781303400000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781397881802",
+   "date_updated": "1782959370874"
+  },
+  {
+   "id": "86baed1m9",
+   "name": "All tasks were completed. Finetune is in progress",
+   "url": "https://app.clickup.com/t/86baed1m9",
+   "list": {
+    "id": "901417261750"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781397882903",
+   "date_updated": "1781397882903"
+  },
+  {
+   "id": "86baed1mm",
+   "name": "Troubleshoot Conversion Tracking with Google Ads",
+   "url": "https://app.clickup.com/t/86baed1mm",
+   "list": {
+    "id": "901417261751"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 94495142,
+     "username": "Dileepa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1783422000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781397885805",
+   "date_updated": "1782270589430"
+  },
+  {
+   "id": "86baed1my",
+   "name": "Optimize Ads for Max Spending using Claude Reports",
+   "url": "https://app.clickup.com/t/86baed1my",
+   "list": {
+    "id": "901417261751"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1776119400000",
+   "date_done": "1781397891494",
+   "date_closed": "1781397891494",
+   "date_created": "1781397891494",
+   "date_updated": "1781397891494"
+  },
+  {
+   "id": "86baed1n2",
+   "name": "Create New Ad Campaign for June",
+   "url": "https://app.clickup.com/t/86baed1n2",
+   "list": {
+    "id": "901417261751"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 94495142,
+     "username": "Dileepa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1783422000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781397892363",
+   "date_updated": "1782270838146"
+  },
+  {
+   "id": "86baed1p2",
+   "name": "Add Media to Ads",
+   "url": "https://app.clickup.com/t/86baed1p2",
+   "list": {
+    "id": "901417261751"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1776292200000",
+   "date_done": "1781397912000",
+   "date_closed": "1781397912000",
+   "date_created": "1781397912000",
+   "date_updated": "1781397912000"
+  },
+  {
+   "id": "86baed1p7",
+   "name": "Create Pipeline to Generate Report",
+   "url": "https://app.clickup.com/t/86baed1p7",
+   "list": {
+    "id": "901417261751"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": "1781397912951",
+   "date_closed": "1781397912951",
+   "date_created": "1781397912951",
+   "date_updated": "1781397912951"
+  },
+  {
+   "id": "86baed1pa",
+   "name": "Privacy Policy on the Webpage to Get full Ads Api",
+   "url": "https://app.clickup.com/t/86baed1pa",
+   "list": {
+    "id": "901417261751"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1781217000000",
+   "date_done": "1781397914428",
+   "date_closed": "1781397914428",
+   "date_created": "1781397914428",
+   "date_updated": "1781397914428"
+  },
+  {
+   "id": "86baed1ph",
+   "name": "Generate report for last 2 months including conversion to send to consultant",
+   "url": "https://app.clickup.com/t/86baed1ph",
+   "list": {
+    "id": "901417261751"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1780439400000",
+   "date_done": "1781397917365",
+   "date_closed": "1781397917365",
+   "date_created": "1781397917365",
+   "date_updated": "1781397917365"
+  },
+  {
+   "id": "86baed1pm",
+   "name": "Go through Keyword Planner and potentially automate fetching from that",
+   "url": "https://app.clickup.com/t/86baed1pm",
+   "list": {
+    "id": "901417261751"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 94495142,
+     "username": "Dileepa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1783422000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781397919200",
+   "date_updated": "1782270591453"
+  },
+  {
+   "id": "86baed1pr",
+   "name": "Vidu reads from AWS and based on prompt gives suggestions",
+   "url": "https://app.clickup.com/t/86baed1pr",
+   "list": {
+    "id": "901417261751"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 94495142,
+     "username": "Dileepa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1783422000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781397920305",
+   "date_updated": "1782270578771"
+  },
+  {
+   "id": "86baed1pt",
+   "name": "Talk with Amilla about automating Ad Creation with Vidu",
+   "url": "https://app.clickup.com/t/86baed1pt",
+   "list": {
+    "id": "901417261751"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 94495142,
+     "username": "Dileepa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1783422000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781397921069",
+   "date_updated": "1782270601898"
+  },
+  {
+   "id": "86baed1qh",
+   "name": "Redeem coupons from AWS account",
+   "url": "https://app.clickup.com/t/86baed1qh",
+   "list": {
+    "id": "901417261753"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1782772200000",
+   "date_done": "1784168219832",
+   "date_closed": "1784168219832",
+   "date_created": "1781397935149",
+   "date_updated": "1784168219832"
+  },
+  {
+   "id": "86baed1qq",
+   "name": "Set up ClickUp for project management",
+   "url": "https://app.clickup.com/t/86baed1qq",
+   "list": {
+    "id": "901417261753"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1781649000000",
+   "date_done": "1784167761114",
+   "date_closed": "1784167761114",
+   "date_created": "1781397938411",
+   "date_updated": "1784167761114"
+  },
+  {
+   "id": "86baed1qx",
+   "name": "Use common template to set up task creations",
+   "url": "https://app.clickup.com/t/86baed1qx",
+   "list": {
+    "id": "901417261753"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1781649000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781397940737",
+   "date_updated": "1781397940737"
+  },
+  {
+   "id": "86baed1r5",
+   "name": "Switch WhatsApp to Google Space",
+   "url": "https://app.clickup.com/t/86baed1r5",
+   "list": {
+    "id": "901417261753"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1785450600000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781397942728",
+   "date_updated": "1781397942728"
+  },
+  {
+   "id": "86baed1rc",
+   "name": "Daily recommendations",
+   "url": "https://app.clickup.com/t/86baed1rc",
+   "list": {
+    "id": "901417261753"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1781649000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781397944281",
+   "date_updated": "1781397944281"
+  },
+  {
+   "id": "86baed1rh",
+   "name": "Create new few Web pages (Phase 1)",
+   "url": "https://app.clickup.com/t/86baed1rh",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1775428200000",
+   "date_done": "1781397946691",
+   "date_closed": "1781397946691",
+   "date_created": "1781397946691",
+   "date_updated": "1781397946691"
+  },
+  {
+   "id": "86baed1rp",
+   "name": "Create new few Web pages (Phase 2)",
+   "url": "https://app.clickup.com/t/86baed1rp",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1775687400000",
+   "date_done": "1781397948943",
+   "date_closed": "1781397948943",
+   "date_created": "1781397948943",
+   "date_updated": "1781397948943"
+  },
+  {
+   "id": "86baed1rt",
+   "name": "Explore Wordpress Dashboard",
+   "url": "https://app.clickup.com/t/86baed1rt",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1775428200000",
+   "date_done": "1781397950587",
+   "date_closed": "1781397950587",
+   "date_created": "1781397950587",
+   "date_updated": "1781397950587"
+  },
+  {
+   "id": "86baed1rz",
+   "name": "Fix All Image Descriptions (Alt Text)",
+   "url": "https://app.clickup.com/t/86baed1rz",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1775514600000",
+   "date_done": "1781397952369",
+   "date_closed": "1781397952369",
+   "date_created": "1781397952368",
+   "date_updated": "1781397952368"
+  },
+  {
+   "id": "86baed1t5",
+   "name": "Review & Clean Up All Pages",
+   "url": "https://app.clickup.com/t/86baed1t5",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1775601000000",
+   "date_done": "1781397954269",
+   "date_closed": "1781397954269",
+   "date_created": "1781397954269",
+   "date_updated": "1781397954269"
+  },
+  {
+   "id": "86baed1tb",
+   "name": "Find & Fix Broken Links",
+   "url": "https://app.clickup.com/t/86baed1tb",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1775687400000",
+   "date_done": "1781397956257",
+   "date_closed": "1781397956257",
+   "date_created": "1781397956257",
+   "date_updated": "1781397956257"
+  },
+  {
+   "id": "86baed1tq",
+   "name": "Check the Site on Phone",
+   "url": "https://app.clickup.com/t/86baed1tq",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1775773800000",
+   "date_done": "1781397958774",
+   "date_closed": "1781397958774",
+   "date_created": "1781397958774",
+   "date_updated": "1781397958774"
+  },
+  {
+   "id": "86baed1tv",
+   "name": "Plugin Cleanup & Catch Up",
+   "url": "https://app.clickup.com/t/86baed1tv",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781397960695",
+   "date_updated": "1782106261864"
+  },
+  {
+   "id": "86baed1ty",
+   "name": "Home SEO page optimization",
+   "url": "https://app.clickup.com/t/86baed1ty",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": "1781397961678",
+   "date_closed": "1781397961678",
+   "date_created": "1781397961678",
+   "date_updated": "1781397961678"
+  },
+  {
+   "id": "86baed1tz",
+   "name": "Main pages optimization",
+   "url": "https://app.clickup.com/t/86baed1tz",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": "1781397962227",
+   "date_closed": "1781397962227",
+   "date_created": "1781397962227",
+   "date_updated": "1781397962227"
+  },
+  {
+   "id": "86baed1uu",
+   "name": "Blog posts optimization",
+   "url": "https://app.clickup.com/t/86baed1uu",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1779143400000",
+   "date_done": "1781397977086",
+   "date_closed": "1781397977086",
+   "date_created": "1781397977086",
+   "date_updated": "1781397977086"
+  },
+  {
+   "id": "86baed1uz",
+   "name": "Check and add Internal links",
+   "url": "https://app.clickup.com/t/86baed1uz",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1779143400000",
+   "date_done": "1781397978974",
+   "date_closed": "1781397978974",
+   "date_created": "1781397978973",
+   "date_updated": "1781397978973"
+  },
+  {
+   "id": "86baed1v3",
+   "name": "Make RankMath scores green",
+   "url": "https://app.clickup.com/t/86baed1v3",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1779143400000",
+   "date_done": "1781397980159",
+   "date_closed": "1781397980159",
+   "date_created": "1781397980159",
+   "date_updated": "1781397980159"
+  },
+  {
+   "id": "86baed1v6",
+   "name": "Check whether every page has H1 tags",
+   "url": "https://app.clickup.com/t/86baed1v6",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": "1781397981187",
+   "date_closed": "1781397981187",
+   "date_created": "1781397981187",
+   "date_updated": "1781397981187"
+  },
+  {
+   "id": "86baed1vf",
+   "name": "Site Speed Optimization",
+   "url": "https://app.clickup.com/t/86baed1vf",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1777242600000",
+   "date_done": "1781397985278",
+   "date_closed": "1781397985278",
+   "date_created": "1781397985278",
+   "date_updated": "1781397985278"
+  },
+  {
+   "id": "86baed1vn",
+   "name": "Schema Markup for Key Pages",
+   "url": "https://app.clickup.com/t/86baed1vn",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1778538600000",
+   "date_done": "1781397988359",
+   "date_closed": "1781397988359",
+   "date_created": "1781397988359",
+   "date_updated": "1781397988359"
+  },
+  {
+   "id": "86baed1vr",
+   "name": "Redirects and 404 Errors",
+   "url": "https://app.clickup.com/t/86baed1vr",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": "1781397989428",
+   "date_closed": "1781397989428",
+   "date_created": "1781397989428",
+   "date_updated": "1781397989428"
+  },
+  {
+   "id": "86baed1w3",
+   "name": "Navigation and Site Structure",
+   "url": "https://app.clickup.com/t/86baed1w3",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1777933800000",
+   "date_done": "1781397991324",
+   "date_closed": "1781397991324",
+   "date_created": "1781397991324",
+   "date_updated": "1781397991324"
+  },
+  {
+   "id": "86baed1wc",
+   "name": "Social Sharing Settings",
+   "url": "https://app.clickup.com/t/86baed1wc",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1777933800000",
+   "date_done": "1781397992399",
+   "date_closed": "1781397992399",
+   "date_created": "1781397992399",
+   "date_updated": "1781397992399"
+  },
+  {
+   "id": "86baed1wr",
+   "name": "Categories, Tags & Content Organization",
+   "url": "https://app.clickup.com/t/86baed1wr",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1781044200000",
+   "date_done": "1782105902520",
+   "date_closed": "1782105902520",
+   "date_created": "1781397995228",
+   "date_updated": "1782105902520"
+  },
+  {
+   "id": "86baed1wx",
+   "name": "Security, Backups & Final Audit",
+   "url": "https://app.clickup.com/t/86baed1wx",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1778625000000",
+   "date_done": "1781397997584",
+   "date_closed": "1781397997584",
+   "date_created": "1781397997583",
+   "date_updated": "1781397997583"
+  },
+  {
+   "id": "86baed1wz",
+   "name": "Writing reviews on Yelp",
+   "url": "https://app.clickup.com/t/86baed1wz",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 210143482,
+     "username": "Amitha Khema Thero"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1785312000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781397999063",
+   "date_updated": "1782959478756"
+  },
+  {
+   "id": "86baed1x4",
+   "name": "Searching Keywords using Google Ads",
+   "url": "https://app.clickup.com/t/86baed1x4",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1777933800000",
+   "date_done": "1781398000573",
+   "date_closed": "1781398000573",
+   "date_created": "1781398000573",
+   "date_updated": "1781398000573"
+  },
+  {
+   "id": "86baed1x7",
+   "name": "Welcome corporate sector for meditation",
+   "url": "https://app.clickup.com/t/86baed1x7",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1779921000000",
+   "date_done": "1781398002497",
+   "date_closed": "1781398002497",
+   "date_created": "1781398002497",
+   "date_updated": "1781398002497"
+  },
+  {
+   "id": "86baed1xb",
+   "name": "Internal Linking",
+   "url": "https://app.clickup.com/t/86baed1xb",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1782858600000",
+   "date_done": "1788922734547",
+   "date_closed": "1788922734547",
+   "date_created": "1781398005274",
+   "date_updated": "1788922734547"
+  },
+  {
+   "id": "86baed1xh",
+   "name": "Add Backlinks referring Lokuswameen wahanse",
+   "url": "https://app.clickup.com/t/86baed1xh",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": "1782105917024",
+   "date_closed": "1782105917024",
+   "date_created": "1781398007774",
+   "date_updated": "1782105917024"
+  },
+  {
+   "id": "86baed1xr",
+   "name": "Claude Research and Create a Plan",
+   "url": "https://app.clickup.com/t/86baed1xr",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1787610600000",
+   "date_done": "1782105888833",
+   "date_closed": "1782105888833",
+   "date_created": "1781398010694",
+   "date_updated": "1782105888833"
+  },
+  {
+   "id": "86baed1xx",
+   "name": "Run common SEO parameters and strategies to become the number one meditation website in the USA",
+   "url": "https://app.clickup.com/t/86baed1xx",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1787610600000",
+   "date_done": "1782105914079",
+   "date_closed": "1782105914079",
+   "date_created": "1781398012234",
+   "date_updated": "1782105914079"
+  },
+  {
+   "id": "86baed1y0",
+   "name": "Review current status, past progress, and future direction",
+   "url": "https://app.clickup.com/t/86baed1y0",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1787610600000",
+   "date_done": "1782105911589",
+   "date_closed": "1782105911589",
+   "date_created": "1781398013294",
+   "date_updated": "1782105911589"
+  },
+  {
+   "id": "86baed1y4",
+   "name": "Create task list for email and website content uploads based on Roshini's map",
+   "url": "https://app.clickup.com/t/86baed1y4",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 210143482,
+     "username": "Amitha Khema Thero"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781398014075",
+   "date_updated": "1781398014075"
+  },
+  {
+   "id": "86baed1zb",
+   "name": "Volunteer conversion page",
+   "url": "https://app.clickup.com/t/86baed1zb",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1779661800000",
+   "date_done": "1781398030444",
+   "date_closed": "1781398030444",
+   "date_created": "1781398030444",
+   "date_updated": "1781398030444"
+  },
+  {
+   "id": "86baed1zg",
+   "name": "OpenAI account created by Banthe Kema - Amila to check pricing before adding payment method",
+   "url": "https://app.clickup.com/t/86baed1zg",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [
+    {
+     "id": 210143482,
+     "username": "Amitha Khema Thero"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781398032170",
+   "date_updated": "1781398032170"
+  },
+  {
+   "id": "86baed1zm",
+   "name": "Video and article content creation",
+   "url": "https://app.clickup.com/t/86baed1zm",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1779661800000",
+   "date_done": "1781398033395",
+   "date_closed": "1781398033395",
+   "date_created": "1781398033395",
+   "date_updated": "1781398033395"
+  },
+  {
+   "id": "86baed1zp",
+   "name": "Write two testimonials",
+   "url": "https://app.clickup.com/t/86baed1zp",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1779661800000",
+   "date_done": "1781398034878",
+   "date_closed": "1781398034878",
+   "date_created": "1781398034878",
+   "date_updated": "1781398034878"
+  },
+  {
+   "id": "86baed1zv",
+   "name": "Review the website interface",
+   "url": "https://app.clickup.com/t/86baed1zv",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1781303400000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1781398037336",
+   "date_updated": "1781398037336"
+  },
+  {
+   "id": "86bahfpjy",
+   "name": "Create volunteer guide blog post on BMC website",
+   "url": "https://app.clickup.com/t/86bahfpjy",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [
+    {
+     "name": "volunteer"
+    },
+    {
+     "name": "content"
+    },
+    {
+     "name": "blog"
+    }
+   ],
+   "parent": null,
+   "due_date": null,
+   "date_done": "1782268989592",
+   "date_closed": "1782268989592",
+   "date_created": "1781976108531",
+   "date_updated": "1782268989592"
+  },
+  {
+   "id": "86bahfpnd",
+   "name": "Create Blog Post: Volunteering at Buddha Meditation Center DC",
+   "url": "https://app.clickup.com/t/86bahfpnd",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 210143482,
+     "username": "Amitha Khema Thero"
+    }
+   ],
+   "tags": [
+    {
+     "name": "volunteer guide"
+    },
+    {
+     "name": "blog post"
+    },
+    {
+     "name": "website content"
+    }
+   ],
+   "parent": null,
+   "due_date": "1782167400000",
+   "date_done": "1782443089386",
+   "date_closed": "1782443089386",
+   "date_created": "1781976171498",
+   "date_updated": "1782443089386"
+  },
+  {
+   "id": "86bahryxh",
+   "name": "[Week 1 / Day 1] Fix GA4 data contamination",
+   "url": "https://app.clickup.com/t/86bahryxh",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "week-1"
+    },
+    {
+     "name": "makebmcno1"
+    }
+   ],
+   "parent": null,
+   "due_date": "1782167400000",
+   "date_done": "1782268532570",
+   "date_closed": "1782268532570",
+   "date_created": "1782107485468",
+   "date_updated": "1782880120953"
+  },
+  {
+   "id": "86bahryxm",
+   "name": "[Week 1 / Day 1] Record GSC baseline",
+   "url": "https://app.clickup.com/t/86bahryxm",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "week-1"
+    },
+    {
+     "name": "makebmcno1"
+    }
+   ],
+   "parent": null,
+   "due_date": "1782167400000",
+   "date_done": "1782543228722",
+   "date_closed": "1782543228722",
+   "date_created": "1782107491707",
+   "date_updated": "1782880396918"
+  },
+  {
+   "id": "86bahryxt",
+   "name": "[Week 1 / Day 1] SERP check — diagnose low-CTR pages",
+   "url": "https://app.clickup.com/t/86bahryxt",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "week-1"
+    },
+    {
+     "name": "makebmcno1"
+    }
+   ],
+   "parent": null,
+   "due_date": "1782167400000",
+   "date_done": "1782268544981",
+   "date_closed": "1782268544981",
+   "date_created": "1782107499271",
+   "date_updated": "1782880201048"
+  },
+  {
+   "id": "86bahryxy",
+   "name": "[Week 1 / Day 2] Conversion tracking audit",
+   "url": "https://app.clickup.com/t/86bahryxy",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "week-1"
+    },
+    {
+     "name": "makebmcno1"
+    }
+   ],
+   "parent": null,
+   "due_date": "1782858600000",
+   "date_done": "1782844869424",
+   "date_closed": "1782844869424",
+   "date_created": "1782107505500",
+   "date_updated": "1782845076994"
+  },
+  {
+   "id": "86bahryy0",
+   "name": "[Week 1 / Day 3] CSV spot-check sign-off (Shakya's review)",
+   "url": "https://app.clickup.com/t/86bahryy0",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "week-1"
+    },
+    {
+     "name": "makebmcno1"
+    }
+   ],
+   "parent": null,
+   "due_date": "1782340200000",
+   "date_done": "1782844993265",
+   "date_closed": "1782844993265",
+   "date_created": "1782107507879",
+   "date_updated": "1782880457703"
+  },
+  {
+   "id": "86bahryy3",
+   "name": "[Week 2] Apply 116 meta descriptions via WP-CLI (5 batch scripts)",
+   "url": "https://app.clickup.com/t/86bahryy3",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "week-1"
+    },
+    {
+     "name": "makebmcno1"
+    }
+   ],
+   "parent": null,
+   "due_date": "1783809000000",
+   "date_done": "1783577958511",
+   "date_closed": "1783577958511",
+   "date_created": "1782107515114",
+   "date_updated": "1783577958511"
+  },
+  {
+   "id": "86bahryyb",
+   "name": "[Week 2 / Shakya] Task D - Fix 6 CRITICAL keyword cannibalization conflicts",
+   "url": "https://app.clickup.com/t/86bahryyb",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "week-1"
+    },
+    {
+     "name": "makebmcno1"
+    }
+   ],
+   "parent": null,
+   "due_date": "1783117800000",
+   "date_done": "1784663089130",
+   "date_closed": "1784663089130",
+   "date_created": "1782107524094",
+   "date_updated": "1784663089130"
+  },
+  {
+   "id": "86bahryyd",
+   "name": "[Week 1 / Day 5] GSC sitemap + re-crawl requests",
+   "url": "https://app.clickup.com/t/86bahryyd",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "week-1"
+    },
+    {
+     "name": "makebmcno1"
+    }
+   ],
+   "parent": null,
+   "due_date": "1782513000000",
+   "date_done": "1782825034606",
+   "date_closed": "1782825034606",
+   "date_created": "1782107528122",
+   "date_updated": "1782880092648"
+  },
+  {
+   "id": "86bahryyk",
+   "name": "[Week 1 / Day 5] Run full WebMoniter audit suite",
+   "url": "https://app.clickup.com/t/86bahryyk",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "week-1"
+    },
+    {
+     "name": "makebmcno1"
+    }
+   ],
+   "parent": null,
+   "due_date": "1782513000000",
+   "date_done": "1783581413395",
+   "date_closed": "1783581413395",
+   "date_created": "1782107532366",
+   "date_updated": "1783581413395"
+  },
+  {
+   "id": "86bahryyq",
+   "name": "[Week 1 / Day 5] Write Week 2 handoff notes",
+   "url": "https://app.clickup.com/t/86bahryyq",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "week-1"
+    },
+    {
+     "name": "makebmcno1"
+    }
+   ],
+   "parent": null,
+   "due_date": "1782513000000",
+   "date_done": "1782844931561",
+   "date_closed": "1782844931561",
+   "date_created": "1782107536979",
+   "date_updated": "1782844931561"
+  },
+  {
+   "id": "86bahryyt",
+   "name": "[Week 1 / Shakya] Task A — CSV spot-check (130+ posts across 5 batches)",
+   "url": "https://app.clickup.com/t/86bahryyt",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "week-1"
+    },
+    {
+     "name": "shakya"
+    },
+    {
+     "name": "makebmcno1"
+    }
+   ],
+   "parent": null,
+   "due_date": "1782513000000",
+   "date_done": "1782844951547",
+   "date_closed": "1782844951547",
+   "date_created": "1782107545164",
+   "date_updated": "1782880438109"
+  },
+  {
+   "id": "86bahryyw",
+   "name": "[Week 1 / Shakya] Task B — WP Admin quick fixes (5 fixes)",
+   "url": "https://app.clickup.com/t/86bahryyw",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "week-1"
+    },
+    {
+     "name": "shakya"
+    },
+    {
+     "name": "wp-admin"
+    },
+    {
+     "name": "makebmcno1"
+    }
+   ],
+   "parent": null,
+   "due_date": "1782253800000",
+   "date_done": "1782845013366",
+   "date_closed": "1782845013366",
+   "date_created": "1782107553563",
+   "date_updated": "1782880473813"
+  },
+  {
+   "id": "86bahryz0",
+   "name": "[Week 1 / Shakya] Task C — GBP audit",
+   "url": "https://app.clickup.com/t/86bahryz0",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "week-1"
+    },
+    {
+     "name": "shakya"
+    },
+    {
+     "name": "makebmcno1"
+    }
+   ],
+   "parent": null,
+   "due_date": "1782253800000",
+   "date_done": "1782845016852",
+   "date_closed": "1782845016852",
+   "date_created": "1782107560502",
+   "date_updated": "1782878971953"
+  },
+  {
+   "id": "86bajx295",
+   "name": "Fix Eventbrite cross-domain tracking in GA4",
+   "url": "https://app.clickup.com/t/86bajx295",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [],
+   "tags": [
+    {
+     "name": "website"
+    },
+    {
+     "name": "analytics"
+    },
+    {
+     "name": "ga4"
+    },
+    {
+     "name": "urgent"
+    }
+   ],
+   "parent": null,
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782269237497",
+   "date_updated": "1782269237497"
+  },
+  {
+   "id": "86bajx299",
+   "name": "Set up Square donation click tracking in GA4",
+   "url": "https://app.clickup.com/t/86bajx299",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [],
+   "tags": [
+    {
+     "name": "website"
+    },
+    {
+     "name": "analytics"
+    },
+    {
+     "name": "donations"
+    },
+    {
+     "name": "ga4"
+    }
+   ],
+   "parent": null,
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782269242798",
+   "date_updated": "1782269242798"
+  },
+  {
+   "id": "86bajx29f",
+   "name": "Strengthen /meditate-with-a-monk/ page content and CTA",
+   "url": "https://app.clickup.com/t/86bajx29f",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [],
+   "tags": [
+    {
+     "name": "website"
+    },
+    {
+     "name": "content"
+    },
+    {
+     "name": "seo"
+    },
+    {
+     "name": "conversion"
+    }
+   ],
+   "parent": null,
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782269247423",
+   "date_updated": "1782269247423"
+  },
+  {
+   "id": "86bajx2a0",
+   "name": "Create Richmond dedicated landing page or recurring program",
+   "url": "https://app.clickup.com/t/86bajx2a0",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [],
+   "tags": [
+    {
+     "name": "website"
+    },
+    {
+     "name": "content"
+    },
+    {
+     "name": "richmond"
+    },
+    {
+     "name": "seo"
+    }
+   ],
+   "parent": null,
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782269253367",
+   "date_updated": "1782269253367"
+  },
+  {
+   "id": "86bajx2aa",
+   "name": "Fix Instagram paid ad landing page — improve engagement",
+   "url": "https://app.clickup.com/t/86bajx2aa",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [
+    {
+     "name": "website"
+    },
+    {
+     "name": "paid-social"
+    },
+    {
+     "name": "instagram"
+    },
+    {
+     "name": "advertising"
+    }
+   ],
+   "parent": null,
+   "due_date": "1784718000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782269259653",
+   "date_updated": "1784168862711"
+  },
+  {
+   "id": "86bajx2af",
+   "name": "Admin review: Website improvement tasks (June 2026 analytics)",
+   "url": "https://app.clickup.com/t/86bajx2af",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [
+    {
+     "name": "review"
+    },
+    {
+     "name": "admin"
+    },
+    {
+     "name": "website"
+    }
+   ],
+   "parent": null,
+   "due_date": "1784718000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782269266934",
+   "date_updated": "1784168858899"
+  },
+  {
+   "id": "86bajx2ku",
+   "name": "Creating tag to all the button on the web pages.",
+   "url": "https://app.clickup.com/t/86bajx2ku",
+   "list": {
+    "id": "901417261751"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1782817200000",
+   "date_done": "1784663096899",
+   "date_closed": "1784663096899",
+   "date_created": "1782269439922",
+   "date_updated": "1784663096899"
+  },
+  {
+   "id": "86bajxech",
+   "name": "Create a design system for web sites",
+   "url": "https://app.clickup.com/t/86bajxech",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1783422000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782271162751",
+   "date_updated": "1782271249828"
+  },
+  {
+   "id": "86bam417a",
+   "name": "Roadmap Graphic",
+   "url": "https://app.clickup.com/t/86bam417a",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1782599400000",
+   "date_done": "1782845023607",
+   "date_closed": "1782845023607",
+   "date_created": "1782443808371",
+   "date_updated": "1782845023607"
+  },
+  {
+   "id": "86bamf1yc",
+   "name": "Fix Google Ads conversion tracking — verify form_submit & set primary conversions",
+   "url": "https://app.clickup.com/t/86bamf1yc",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [],
+   "tags": [
+    {
+     "name": "google-ads"
+    },
+    {
+     "name": "analytics"
+    },
+    {
+     "name": "ga4"
+    },
+    {
+     "name": "conversion-tracking"
+    }
+   ],
+   "parent": null,
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782500471324",
+   "date_updated": "1782500471324"
+  },
+  {
+   "id": "86banyeqd",
+   "name": "Continue GSC Re-Indexing",
+   "url": "https://app.clickup.com/t/86banyeqd",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": "86bahryyd",
+   "due_date": "1783031400000",
+   "date_done": "1782879865927",
+   "date_closed": "1782879865927",
+   "date_created": "1782825090537",
+   "date_updated": "1782879876135"
+  },
+  {
+   "id": "86bap810m",
+   "name": "Day 3 — Button Click Tracking (site-wide GTM selector)",
+   "url": "https://app.clickup.com/t/86bap810m",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1784241000000",
+   "date_done": "1784533097543",
+   "date_closed": "1784533097543",
+   "date_created": "1782845151623",
+   "date_updated": "1784533097543"
+  },
+  {
+   "id": "86bapdbn5",
+   "name": "Update calendar + /meditate-with-a-monk/ page — Vienna Community Center program",
+   "url": "https://app.clickup.com/t/86bapdbn5",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": "1783307866688",
+   "date_closed": "1783307866688",
+   "date_created": "1782858912081",
+   "date_updated": "1783307866688"
+  },
+  {
+   "id": "86bapdbnp",
+   "name": "Cancel next week's children's program — update calendar and website",
+   "url": "https://app.clickup.com/t/86bapdbnp",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1751841000000",
+   "date_done": "1783307865612",
+   "date_closed": "1783307865612",
+   "date_created": "1782858915106",
+   "date_updated": "1783307865612"
+  },
+  {
+   "id": "86baq47g1",
+   "name": "Task to Dileep - when can be do the test run sending email ?",
+   "url": "https://app.clickup.com/t/86baq47g1",
+   "list": {
+    "id": "901417261749"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 94495142,
+     "username": "Dileepa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1783508400000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782959086006",
+   "date_updated": "1782959197006"
+  },
+  {
+   "id": "86baq4fph",
+   "name": "Add all team members to ClickUp",
+   "url": "https://app.clickup.com/t/86baq4fph",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1782945000000",
+   "date_done": "1782961910484",
+   "date_closed": "1782961910484",
+   "date_created": "1782960755863",
+   "date_updated": "1782962230602"
+  },
+  {
+   "id": "86baq4fq2",
+   "name": "Investigate why ClickUp invitation/reminder emails are not being received",
+   "url": "https://app.clickup.com/t/86baq4fq2",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": "1782961910484",
+   "date_closed": "1782961910484",
+   "date_created": "1782960760504",
+   "date_updated": "1782962256970"
+  },
+  {
+   "id": "86baq4fq6",
+   "name": "Discuss Google Tag Manager / tracking setup with Kusal",
+   "url": "https://app.clickup.com/t/86baq4fq6",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1784718000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782960764622",
+   "date_updated": "1784168569333"
+  },
+  {
+   "id": "86baq4fqq",
+   "name": "Obtain Zoom backend access (contact Swami Amila)",
+   "url": "https://app.clickup.com/t/86baq4fqq",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1784718000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782960766631",
+   "date_updated": "1784168659973"
+  },
+  {
+   "id": "86baq4fqv",
+   "name": "Review Google Ads API capabilities for creating ads through Vidu",
+   "url": "https://app.clickup.com/t/86baq4fqv",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1784718000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782960768795",
+   "date_updated": "1785809535065"
+  },
+  {
+   "id": "86baq4frh",
+   "name": "Discuss and define website design system with Kusal",
+   "url": "https://app.clickup.com/t/86baq4frh",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1784718000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782960772186",
+   "date_updated": "1784168655850"
+  },
+  {
+   "id": "86baq564r",
+   "name": "Web site visitor's user flow",
+   "url": "https://app.clickup.com/t/86baq564r",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1784718000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782963302455",
+   "date_updated": "1784168827597"
+  },
+  {
+   "id": "86baq56dw",
+   "name": "review & do the patch work for the website",
+   "url": "https://app.clickup.com/t/86baq56dw",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1784718000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782963382056",
+   "date_updated": "1784168823429"
+  },
+  {
+   "id": "86baq56jn",
+   "name": "Web Site frame work remodeling",
+   "url": "https://app.clickup.com/t/86baq56jn",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1784718000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782963434600",
+   "date_updated": "1782963456014"
+  },
+  {
+   "id": "86baq57wc",
+   "name": "Could you please let us know when we can do the test run for sending the emails",
+   "url": "https://app.clickup.com/t/86baq57wc",
+   "list": {
+    "id": "901417261749"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 94495142,
+     "username": "Dileepa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1782963820404",
+   "date_updated": "1782963824363"
+  },
+  {
+   "id": "86bavgmqf",
+   "name": "Fix broken/misdirected links on /useful-links/ page",
+   "url": "https://app.clickup.com/t/86bavgmqf",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "website"
+    },
+    {
+     "name": "bug"
+    },
+    {
+     "name": "links"
+    }
+   ],
+   "parent": null,
+   "due_date": "1783742340000",
+   "date_done": "1783831736040",
+   "date_closed": "1783831736040",
+   "date_created": "1783646774606",
+   "date_updated": "1783831736040"
+  },
+  {
+   "id": "86bawtakd",
+   "name": "Day 1.1 — GTM Orientation: container tour + GA4 config tag name",
+   "url": "https://app.clickup.com/t/86bawtakd",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "makebmcno1"
+    },
+    {
+     "name": "week-2"
+    }
+   ],
+   "parent": null,
+   "due_date": "1784068200000",
+   "date_done": "1784311286303",
+   "date_closed": "1784311286303",
+   "date_created": "1783940358706",
+   "date_updated": "1784311286303"
+  },
+  {
+   "id": "86bawtakp",
+   "name": "Day 1.2 — GTM: enable click and page built-in variables",
+   "url": "https://app.clickup.com/t/86bawtakp",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "makebmcno1"
+    },
+    {
+     "name": "week-2"
+    }
+   ],
+   "parent": null,
+   "due_date": "1784068200000",
+   "date_done": "1784311278580",
+   "date_closed": "1784311278580",
+   "date_created": "1783940360287",
+   "date_updated": "1784311278580"
+  },
+  {
+   "id": "86bawtam5",
+   "name": "Day 1.3 — GA4 hygiene: unwanted referral + developer traffic filter",
+   "url": "https://app.clickup.com/t/86bawtam5",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "makebmcno1"
+    },
+    {
+     "name": "week-2"
+    }
+   ],
+   "parent": null,
+   "due_date": "1784068200000",
+   "date_done": "1784515529463",
+   "date_closed": "1784515529463",
+   "date_created": "1783940361827",
+   "date_updated": "1784515529463"
+  },
+  {
+   "id": "86bawtata",
+   "name": "Day 1.4 — GSC quick noindex batch for stale event pages",
+   "url": "https://app.clickup.com/t/86bawtata",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "makebmcno1"
+    },
+    {
+     "name": "week-2"
+    }
+   ],
+   "parent": null,
+   "due_date": "1784068200000",
+   "date_done": "1783940487633",
+   "date_closed": "1783940487633",
+   "date_created": "1783940383687",
+   "date_updated": "1783940487633"
+  },
+  {
+   "id": "86bawtatr",
+   "name": "Day 2 — Fix Elementor form conversion tracking in GTM/GA4",
+   "url": "https://app.clickup.com/t/86bawtatr",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "makebmcno1"
+    },
+    {
+     "name": "week-2"
+    }
+   ],
+   "parent": null,
+   "due_date": "1784154600000",
+   "date_done": "1784533082986",
+   "date_closed": "1784533082986",
+   "date_created": "1783940385399",
+   "date_updated": "1784533082986"
+  },
+  {
+   "id": "86bawtaz3",
+   "name": "Day 4.2 — Check with Shakya on critical cannibalization conflicts",
+   "url": "https://app.clickup.com/t/86bawtaz3",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "makebmcno1"
+    },
+    {
+     "name": "week-2"
+    }
+   ],
+   "parent": null,
+   "due_date": "1784586600000",
+   "date_done": "1784663113728",
+   "date_closed": "1784663113728",
+   "date_created": "1783940406623",
+   "date_updated": "1784663113728"
+  },
+  {
+   "id": "86bawtazb",
+   "name": "Day 4.3 — Raise Astro migration decision with Amila sir",
+   "url": "https://app.clickup.com/t/86bawtazb",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "makebmcno1"
+    },
+    {
+     "name": "week-2"
+    }
+   ],
+   "parent": null,
+   "due_date": "1784586600000",
+   "date_done": "1788922782484",
+   "date_closed": "1788922782484",
+   "date_created": "1783940408653",
+   "date_updated": "1788922787073"
+  },
+  {
+   "id": "86bawtazn",
+   "name": "Day 5 — Verify Week 2 outcomes + write Week 3 handoff",
+   "url": "https://app.clickup.com/t/86bawtazn",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [
+    {
+     "name": "makebmcno1"
+    },
+    {
+     "name": "week-2"
+    }
+   ],
+   "parent": null,
+   "due_date": "1784673000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1783940410772",
+   "date_updated": "1784533166662"
+  },
+  {
+   "id": "86bayjf7r",
+   "name": "Kusal to discuss with Amila/Udara regarding ASTRO",
+   "url": "https://app.clickup.com/t/86bayjf7r",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1784169810474",
+   "date_updated": "1784169810474"
+  },
+  {
+   "id": "86bayjgmn",
+   "name": "Create email template we need our brand managing structure",
+   "url": "https://app.clickup.com/t/86bayjgmn",
+   "list": {
+    "id": "901417261749"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 100294396,
+     "username": "Amila Upathissa"
+    },
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1784718000000",
+   "date_done": "1788922717233",
+   "date_closed": "1788922717233",
+   "date_created": "1784170366388",
+   "date_updated": "1788922717233"
+  },
+  {
+   "id": "86bb2bwrg",
+   "name": "SEO Fix in Pages",
+   "url": "https://app.clickup.com/t/86bb2bwrg",
+   "list": {
+    "id": "901417261752"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": null,
+   "date_done": "1789538973020",
+   "date_closed": "1789538973020",
+   "date_created": "1784790013840",
+   "date_updated": "1789538973020"
+  },
+  {
+   "id": "86bbww649",
+   "name": "Draft social copy: Buddha Meditation Center joined 5th Annual YogaFest",
+   "url": "https://app.clickup.com/t/86bbww649",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [],
+   "tags": [
+    {
+     "name": "stylus"
+    },
+    {
+     "name": "event-post-pipeline"
+    },
+    {
+     "name": "2026-09-08-21-14-ghmpit"
+    }
+   ],
+   "parent": null,
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1788902786440",
+   "date_updated": "1788902786440"
+  },
+  {
+   "id": "86bbwwk49",
+   "name": "Draft social copy: Bhanthe Pannakara visit to Buddha Meditation Center",
+   "url": "https://app.clickup.com/t/86bbwwk49",
+   "list": {
+    "id": "901417429756"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "to do",
+    "type": "open"
+   },
+   "assignees": [],
+   "tags": [
+    {
+     "name": "stylus"
+    },
+    {
+     "name": "event-post-pipeline"
+    },
+    {
+     "name": "submission-2026-09-08-21-41-27z12y"
+    }
+   ],
+   "parent": null,
+   "due_date": null,
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1788904075647",
+   "date_updated": "1788904075647"
+  },
+  {
+   "id": "86bbx136v",
+   "name": "refer all email documentation what Dileep and Prasad created",
+   "url": "https://app.clickup.com/t/86bbx136v",
+   "list": {
+    "id": "901417261749"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1789470000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1788922648097",
+   "date_updated": "1788922670350"
+  },
+  {
+   "id": "86bbx14fj",
+   "name": "Dileepa and Prasad to save all email documentation (create user manual) in",
+   "url": "https://app.clickup.com/t/86bbx14fj",
+   "list": {
+    "id": "901417261749"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 94495142,
+     "username": "Dileepa"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1789470000000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1788922775966",
+   "date_updated": "1788922797410"
+  },
+  {
+   "id": "86bbx1g2v",
+   "name": "Documente all the process for future use",
+   "url": "https://app.clickup.com/t/86bbx1g2v",
+   "list": {
+    "id": "901417261753"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "in progress",
+    "type": "custom"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": null,
+   "due_date": "1790679600000",
+   "date_done": null,
+   "date_closed": null,
+   "date_created": "1788923308969",
+   "date_updated": "1788925207181"
+  },
+  {
+   "id": "86bbx257t",
+   "name": "Install N8N in Docker",
+   "url": "https://app.clickup.com/t/86bbx257t",
+   "list": {
+    "id": "901417261753"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": "86bbx2gqy",
+   "due_date": "1789470000000",
+   "date_done": "1789539280528",
+   "date_closed": "1789539280528",
+   "date_created": "1788924985630",
+   "date_updated": "1789539280528"
+  },
+  {
+   "id": "86bbx268t",
+   "name": "Integrate Password with the frontend App",
+   "url": "https://app.clickup.com/t/86bbx268t",
+   "list": {
+    "id": "901417261753"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": "86bbx2gqy",
+   "due_date": "1789470000000",
+   "date_done": "1789539280528",
+   "date_closed": "1789539280528",
+   "date_created": "1788925079700",
+   "date_updated": "1789539280528"
+  },
+  {
+   "id": "86bbx27pb",
+   "name": "Integrate gui with N8N node",
+   "url": "https://app.clickup.com/t/86bbx27pb",
+   "list": {
+    "id": "901417261753"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": "86bbx2gqy",
+   "due_date": "1789470000000",
+   "date_done": "1789539280528",
+   "date_closed": "1789539280528",
+   "date_created": "1788925189052",
+   "date_updated": "1789539280528"
+  },
+  {
+   "id": "86bbx28c7",
+   "name": "Connect cloudinary with N8N",
+   "url": "https://app.clickup.com/t/86bbx28c7",
+   "list": {
+    "id": "901417261753"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": "86bbx2gqy",
+   "due_date": "1789470000000",
+   "date_done": "1789539280528",
+   "date_closed": "1789539280528",
+   "date_created": "1788925275493",
+   "date_updated": "1789539280528"
+  },
+  {
+   "id": "86bbx28w9",
+   "name": "Create and agent to generate the post",
+   "url": "https://app.clickup.com/t/86bbx28w9",
+   "list": {
+    "id": "901417261753"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": "86bbx2gqy",
+   "due_date": "1789470000000",
+   "date_done": "1789539280528",
+   "date_closed": "1789539280528",
+   "date_created": "1788925345566",
+   "date_updated": "1789539280528"
+  },
+  {
+   "id": "86bbx29f3",
+   "name": "Complete N8N flow",
+   "url": "https://app.clickup.com/t/86bbx29f3",
+   "list": {
+    "id": "901417261753"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": "86bbx2gqy",
+   "due_date": "1789470000000",
+   "date_done": "1789539280528",
+   "date_closed": "1789539280528",
+   "date_created": "1788925370865",
+   "date_updated": "1789539280528"
+  },
+  {
+   "id": "86bbx2a49",
+   "name": "Send output to WhatsApp",
+   "url": "https://app.clickup.com/t/86bbx2a49",
+   "list": {
+    "id": "901417261753"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [
+    {
+     "id": 270803640,
+     "username": "Kusal Darshana"
+    }
+   ],
+   "tags": [],
+   "parent": "86bbx2gqy",
+   "due_date": "1789470000000",
+   "date_done": "1789539280528",
+   "date_closed": "1789539280528",
+   "date_created": "1788925402730",
+   "date_updated": "1789539280528"
+  },
+  {
+   "id": "86bbx2gqy",
+   "name": "TASK 1",
+   "url": "https://app.clickup.com/t/86bbx2gqy",
+   "list": {
+    "id": "901417261753"
+   },
+   "space": {
+    "id": "90145608501"
+   },
+   "status": {
+    "status": "complete",
+    "type": "closed"
+   },
+   "assignees": [],
+   "tags": [],
+   "parent": null,
+   "due_date": "1789470000000",
+   "date_done": "1789539280528",
+   "date_closed": "1789539280528",
+   "date_created": "1788926012725",
+   "date_updated": "1789539280528"
+  }
+ ]
+}

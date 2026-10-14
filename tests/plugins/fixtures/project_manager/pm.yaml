@@ -1,0 +1,60 @@
+# ProjectManager (PM) config — the ONE place every ClickUp id, account id, tag and schedule
+# lives (extra/plans/pm/PM_PLAN.md §4.1). Live copy: /opt/data/pm/pm.yaml in the `hermes`
+# container (= /home/bmc/.hermes/pm/pm.yaml on the VPS). Editing the live copy is a
+# human-gated production config change (PM_PLAN §0.7).
+#
+# No secrets here. The ClickUp token is env CLICKUP_API_TOKEN (Doppler vidu/prd), the DB DSN is
+# env SPP_DATABASE_URL (/opt/data/.env). Phone numbers live only in pm.people (webapp).
+# Names are display-only; code matches by id. The loader refuses to start on any missing or
+# malformed value (plugins/project_manager/config.py).
+#
+# Ids below were read from live ClickUp on 2026-10-14 (get_workspace_hierarchy / get_list).
+
+clickup:
+  workspace_id: "90141249488"
+  spaces:
+    - {id: "90145608492", name: "Space"}            # holds the General Project Management list
+    - {id: "90145608501", name: "Team Space"}
+  lists:                                            # 7 lists; six are named "Tasks", so id is the identity
+    - {id: "901416409229", name: "General Project Management", space_id: "90145608492"}
+    - {id: "901417429756", name: "Website Content",            space_id: "90145608501"}
+    - {id: "901417261749", name: "Email Integration / Tasks",  space_id: "90145608501"}
+    - {id: "901417261750", name: "AI Chatbot / Tasks",         space_id: "90145608501"}
+    - {id: "901417261751", name: "Google Ads / Tasks",         space_id: "90145608501"}
+    - {id: "901417261752", name: "SEO / Tasks",                space_id: "90145608501"}
+    - {id: "901417261753", name: "Vidu / Tasks",               space_id: "90145608501"}
+  accounts:
+    admin_account_id: "210143482"     # shared admin account: never assigned work; author of PM writes
+    bhanthe_account_id: "204231996"   # Bhanthe's personal account: where his work is assigned
+  tags:
+    exclude_from_reports: ["stylus", "event-post-pipeline"]   # Q10 (accepted 2026-10-14)
+    # topic_key -> ClickUp tag names. A meeting's topic_key selects the open tasks attached to
+    # its reminder. Empty until the topic tags exist in ClickUp (PM_PLAN §8 C3).
+    meeting_topics: {}
+
+time:
+  standard_timezone: "America/New_York"   # Maryland, Bhanthe's zone. All schedules use it.
+  # ClickUp stores a date-only due date as 04:00 local in the setter's zone and its API has no
+  # "has a time" flag (verified 2026-10-14). An instant that is exactly 04:00 in one of these
+  # zones is read as a date-only due date in that zone (rule agreed with Kusal 2026-10-14).
+  # Add a zone here when someone in a new zone starts setting due dates.
+  date_only_zones: ["Asia/Colombo", "America/Vancouver", "America/Denver", "America/New_York"]
+
+reports:
+  upcoming_days: 14                       # Q5
+  weekly_brief: {weekday: monday, at: "09:00", catch_up_hours: 12}   # Q14
+  meeting_reminder: {at: "18:00", catch_up_hours: 5}                 # Q15 (day before)
+  agent_note_enabled: true                # optional LLM note at the end of the weekly brief
+  max_rows_per_section: 15                # WhatsApp only; the stored/webapp report is complete
+  webapp_base_url: "https://spp.buddhameditationdc.org"
+
+whatsapp:
+  # test: every PM send goes to the test recipient's DM. production: the weekly brief and meeting
+  # reminders go to the Vidu main group (platforms.whatsapp.home_channel.chat_id in config.yaml),
+  # approval requests always go to the approver's DM.
+  mode: test
+  test_recipient_clickup_user_id: "270803640"   # Kusal; number comes from pm.people
+
+approvals:
+  approver_clickup_user_id: "204258998"   # Yohan; number comes from pm.people
+  ttl_hours: 72                           # a pending approval with no reply expires
