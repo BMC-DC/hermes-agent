@@ -172,6 +172,16 @@ def test_sync_scope_is_idempotent_and_audited(conn):
     assert [a[1] for a in audit(conn, "clickup_scope")] == ["upsert", "upsert", "delete"]
 
 
+def test_seed_people_is_rerunnable_including_people_outside_clickup(conn):
+    args = dict(timezone="America/Denver", country=None, role=None, actor="seed")
+    assert store.insert_person_if_absent(conn, display_name="Udara", clickup_user_id=None, **args)
+    assert store.insert_person_if_absent(conn, display_name="udara", clickup_user_id=None, **args) is None
+    assert store.insert_person_if_absent(conn, display_name="Someone", clickup_user_id=YOHAN, **args) is None
+    with conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM pm.people WHERE lower(display_name) = 'udara'")
+        assert cur.fetchone()["n"] == 1
+
+
 def test_sync_topics(conn):
     assert store.sync_topics(conn, {"ai": ["vidu", "ai"]}, "t")["changed"] == 1
     assert store.sync_topics(conn, {"ai": ["ai", "vidu"]}, "t")["changed"] == 0

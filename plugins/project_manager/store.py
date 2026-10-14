@@ -159,9 +159,15 @@ def active_people(conn) -> list[dict]:
 
 def insert_person_if_absent(conn, *, display_name: str, clickup_user_id: Optional[str], timezone: str,
                             country: Optional[str], role: Optional[str], actor: str) -> Optional[int]:
-    """Seed helper: inserts only when no row has this clickup_user_id. Never
-    overwrites a row someone already edited in the webapp."""
+    """Seed helper: inserts only when no row has this clickup_user_id (or, for
+    someone outside ClickUp, this display name). Never overwrites a row someone
+    already edited in the webapp, so re-running a seed is safe."""
     with conn, conn.cursor() as cur:
+        if clickup_user_id is None:
+            cur.execute("SELECT 1 FROM pm.people WHERE clickup_user_id IS NULL AND lower(display_name) = lower(%s)",
+                        (display_name,))
+            if cur.fetchone():
+                return None
         cur.execute(
             """INSERT INTO pm.people (display_name, clickup_user_id, timezone, country, role, updated_by)
                VALUES (%s, %s, %s, %s, %s, %s)
