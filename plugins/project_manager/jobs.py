@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import fcntl
+import os
 import sys
 from contextlib import contextmanager
 from datetime import datetime
@@ -97,6 +98,18 @@ async def _tick(cfg, now: datetime, dry_run: bool, verbose: bool) -> int:
     return 1 if failures else 0
 
 
+def bridge_allows(number: str) -> bool:
+    """Mirror of the bridge's own DM gate (scripts/whatsapp-bridge/allowlist.js): '*' allows
+    everyone; otherwise the sender's phone/LID aliases must meet the allowlist's."""
+    from gateway.whatsapp_identity import expand_whatsapp_aliases, normalize_whatsapp_identifier
+
+    raw = os.environ.get("WHATSAPP_ALLOWED_USERS", "")
+    allowed = {normalize_whatsapp_identifier(v) for v in raw.split(",") if v.strip()}
+    if "*" in allowed:
+        return True
+    return bool(allowed & expand_whatsapp_aliases(number))
+
+
 def cmd_check(cfg: pm_config.PMConfig) -> int:
     problems: list[str] = []
     ok: list[str] = []
@@ -151,6 +164,11 @@ def cmd_check(cfg: pm_config.PMConfig) -> int:
                     problems.append(f"{label} ({person['display_name']}) has no WhatsApp number in pm.people")
                 else:
                     ok.append(f"{label} {person['display_name']} has a WhatsApp number")
+                    if bridge_allows(person["whatsapp_number"]):
+                        ok.append(f"{label} is in WHATSAPP_ALLOWED_USERS (the bridge will deliver their replies)")
+                    else:
+                        problems.append(f"{label} ({person['display_name']}) is NOT in WHATSAPP_ALLOWED_USERS: the bridge "
+                                        "drops their DMs, so YES/NO replies would never arrive")
     except Exception as exc:
         problems.append(f"database: {type(exc).__name__}: {exc}")
     try:

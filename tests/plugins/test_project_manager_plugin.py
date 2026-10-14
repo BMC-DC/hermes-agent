@@ -139,3 +139,18 @@ def test_tool_reports_config_errors_cleanly(monkeypatch):
         raise pm_config.PMConfigError("pm.yaml: missing required key clickup.workspace_id")
     monkeypatch.setattr(tools.pm_config, "load_config", bad)
     assert "workspace_id" in json.loads(tools.pm_summary({}))["error"]
+
+
+@pytest.mark.parametrize("env,number,ok", [
+    ("15550000002,94770000000", "15550000002", True),
+    ("+1 555-000-0002", "15550000002", False),      # the bridge only strips '+', not spaces/dashes
+    ("+15550000002", "15550000002", True),
+    ("*", "15550000002", True),
+    ("", "15550000002", False),
+    ("94770000000", "15550000002", False),
+])
+def test_bridge_allowlist_mirror(monkeypatch, env, number, ok):
+    from plugins.project_manager import jobs
+    monkeypatch.setenv("WHATSAPP_ALLOWED_USERS", env)
+    monkeypatch.setattr("gateway.whatsapp_identity.expand_whatsapp_aliases", lambda x: {x})
+    assert jobs.bridge_allows(number) is ok
