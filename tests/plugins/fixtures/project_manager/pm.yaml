@@ -29,8 +29,13 @@ clickup:
   tags:
     exclude_from_reports: ["stylus", "event-post-pipeline"]   # Q10 (accepted 2026-10-14)
     # topic_key -> ClickUp tag names. A meeting's topic_key selects the open tasks attached to
-    # its reminder. Empty until the topic tags exist in ClickUp (PM_PLAN §8 C3).
-    meeting_topics: {}
+    # its reminder. Tags created in both spaces 2026-10-14 at Kusal's request (PM_PLAN §8 C3);
+    # tasks still need tagging for the reminder brief to list anything.
+    meeting_topics:
+      ai: ["ai"]
+      web: ["web"]
+      email: ["email"]
+      ads: ["ads"]
 
 time:
   standard_timezone: "America/New_York"   # Maryland, Bhanthe's zone. All schedules use it.
