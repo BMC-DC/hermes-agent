@@ -204,6 +204,19 @@ def cmd_seed_people(path: Path) -> int:
     return 0
 
 
+def _load_dotenv() -> None:
+    """Load <root>/.env without overriding the environment, the same way the
+    no-agent cron runner does, so `docker exec hermes python -m ...jobs` sees
+    CLICKUP_API_TOKEN / SPP_DATABASE_URL exactly like the cron job."""
+    try:
+        from hermes_cli.env_loader import load_hermes_dotenv
+        from hermes_constants import get_default_hermes_root
+
+        load_hermes_dotenv(hermes_home=get_default_hermes_root())
+    except Exception as exc:  # pragma: no cover - only on a broken install
+        print(f"[pm] warning: could not load .env: {type(exc).__name__}", file=sys.stderr)
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="pm-jobs")
     parser.add_argument("command", choices=["tick", "weekly-brief", "meeting-reminders", "execute-approvals",
@@ -215,6 +228,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args(argv)
 
+    _load_dotenv()
     cfg = pm_config.load_config()
     now = _now(args.now)
     verbose = args.verbose or args.dry_run
