@@ -215,7 +215,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(f"[pm sync-scope] dry run: {len(entries)} entries")
             return 0
         with store.connection() as conn:
-            print(f"[pm sync-scope] {store.sync_scope(conn, entries, 'pm-sync-scope')}")
+            print(f"[pm sync-scope] lists/spaces {store.sync_scope(conn, entries, 'pm-sync-scope')}")
+            topics = {k: sorted(v) for k, v in cfg.meeting_topics.items()}
+            print(f"[pm sync-scope] meeting topics {store.sync_topics(conn, topics, 'pm-sync-scope')}")
         return 0
     if args.command == "tick":
         with _lock(cfg) as acquired:

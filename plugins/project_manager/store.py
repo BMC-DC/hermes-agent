@@ -109,6 +109,30 @@ def sync_scope(conn, entries: list[tuple[str, str, str, Optional[str]]], actor: 
     return {"changed": changed, "removed": removed, "total": len(wanted)}
 
 
+def sync_topics(conn, topics: dict[str, list[str]], actor: str) -> dict[str, int]:
+    """pm.yaml meeting_topics -> pm.meeting_topics (for the webapp's topic picker)."""
+    changed = removed = 0
+    with conn, conn.cursor() as cur:
+        cur.execute("SELECT topic_key, tags FROM pm.meeting_topics FOR UPDATE")
+        existing = {r["topic_key"]: sorted(r["tags"]) for r in cur.fetchall()}
+        for key, tags in topics.items():
+            tags = sorted(tags)
+            if existing.get(key) == tags:
+                continue
+            cur.execute("""INSERT INTO pm.meeting_topics (topic_key, tags, synced_at) VALUES (%s, %s, now())
+                           ON CONFLICT (topic_key) DO UPDATE SET tags = EXCLUDED.tags, synced_at = now()""",
+                        (key, tags))
+            _audit(cur, "meeting_topic", key, "upsert", actor,
+                   {"tags": existing[key]} if key in existing else None, {"tags": tags})
+            changed += 1
+        for key, tags in existing.items():
+            if key not in topics:
+                cur.execute("DELETE FROM pm.meeting_topics WHERE topic_key = %s", (key,))
+                _audit(cur, "meeting_topic", key, "delete", actor, {"tags": tags}, None)
+                removed += 1
+    return {"changed": changed, "removed": removed, "total": len(topics)}
+
+
 # ── People ───────────────────────────────────────────────────────────────────
 _PERSON_COLS = "id, display_name, clickup_user_id, whatsapp_number, timezone, country, role, description, is_active"
 

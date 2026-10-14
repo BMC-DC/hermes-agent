@@ -64,7 +64,7 @@ def conn():
     admin.autocommit = True
     with admin.cursor() as cur:
         cur.execute("TRUNCATE pm.audit, pm.message_log, pm.approvals, pm.reports, pm.meeting_attendees, "
-                    "pm.meetings, pm.people, pm.clickup_scope RESTART IDENTITY CASCADE")
+                    "pm.meetings, pm.people, pm.clickup_scope, pm.meeting_topics RESTART IDENTITY CASCADE")
     admin.close()
     c = store.connect(APP_DSN)
     for name, uid, number, tz in (("Kusal Darshana", KUSAL, KUSAL_NO, "Asia/Colombo"),
@@ -170,6 +170,13 @@ def test_sync_scope_is_idempotent_and_audited(conn):
     assert store.sync_scope(conn, entries, "t")["changed"] == 0
     assert store.sync_scope(conn, entries[:1], "t")["removed"] == 1
     assert [a[1] for a in audit(conn, "clickup_scope")] == ["upsert", "upsert", "delete"]
+
+
+def test_sync_topics(conn):
+    assert store.sync_topics(conn, {"ai": ["vidu", "ai"]}, "t")["changed"] == 1
+    assert store.sync_topics(conn, {"ai": ["ai", "vidu"]}, "t")["changed"] == 0
+    assert store.sync_topics(conn, {}, "t")["removed"] == 1
+    assert [a[1] for a in audit(conn, "meeting_topic")] == ["upsert", "delete"]
 
 
 # ── approval flow end to end ─────────────────────────────────────────────────
